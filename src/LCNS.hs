@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module LCNS (tui) where
 
 import Relude
@@ -10,12 +12,14 @@ import Brick.Widgets.List
 import Graphics.Vty.Input.Events
 import Graphics.Vty.Attributes
 
-import System.Directory
+import System.Directory hiding (isSymbolicLink)
 import System.FilePath (takeDirectory)
+import System.Posix (isSymbolicLink, isDirectory)
 
 import qualified Data.Sequence as Seq
 import UITypes
 import Lens.Micro ((%~), (^.))
+import Lens.Micro.Extras (view)
 
 tui :: IO ()
 tui = do
@@ -26,15 +30,20 @@ tui = do
 buildInitialState :: IO AppState
 buildInitialState = do
     curDir <- getCurrentDirectory
-    dirFiles <- listDirectory curDir
-    let dirContents = list "dir" (Seq.fromList dirFiles) 1
+    dirFiles <- mapM mkFileInfo =<< listDirectory curDir
+    let dirContents = list "dir" (Seq.fromList $ sortOn (not . isDirectory . view status) dirFiles) 1
     pure $ AppState {_currentFiles = dirContents, _currentDir = curDir}
 
 drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s = one $ border $ renderList renderFile True $ s ^. currentFiles where
 
-    renderFile True = withAttr "selected" . str
-    renderFile False = str
+    renderFile isSelected file =
+        withAttr (if
+            | isSelected -> "selected"
+            | file ^. status & isSymbolicLink -> "link" -- note: getFileStatus does not detect symlinks
+            | file ^. status & isDirectory -> "directory"
+            | otherwise -> "file") 
+        $ str $ file ^. name
 
 lcns :: App AppState e ResourceName
 lcns = App
@@ -43,8 +52,9 @@ lcns = App
     , appHandleEvent = handleEvent
     , appStartEvent = pure
     , appAttrMap = const $ attrMap mempty
-        [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black)
+        [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
         , ("directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
+        , ("link", currentAttr `withForeColor` cyan)
         ]
     }
 
@@ -62,7 +72,7 @@ handleEvent s event = case event of
     _ -> continue s
     where
         selected = case listSelectedElement $ s ^. currentFiles of
-            Just (_, file) -> file
+            Just (_, file) -> file ^. name
             Nothing -> error "impossible"
 
         changeState f = continue $ f s

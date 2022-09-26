@@ -41,6 +41,7 @@ library
     , microlens
     , microlens-th
     , relude
+    , unix
     , vty
   default-language: Haskell2010
 
@@ -63,6 +64,7 @@ executable lcns
     , microlens
     , microlens-th
     , relude
+    , unix
     , vty
   default-language: Haskell2010
 
@@ -86,5 +88,6 @@ test-suite lcns-test
     , microlens
     , microlens-th
     , relude
+    , unix
     , vty
   default-language: Haskell2010

@@ -24,6 +24,7 @@ dependencies:
 - brick
 - directory
 - relude
+- unix
 - vty
 - microlens
 - microlens-th
