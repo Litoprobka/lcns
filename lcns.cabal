@@ -24,7 +24,7 @@ source-repository head
 library
   exposed-modules:
       LCNS
-      UITypes
+      Types
   other-modules:
       Paths_lcns
   hs-source-dirs:
@@ -36,6 +36,7 @@ library
   build-depends:
       base >=4.8 && <5
     , brick
+    , data-default
     , directory
     , filepath
     , microlens
@@ -58,6 +59,7 @@ executable lcns
   build-depends:
       base >=4.8 && <5
     , brick
+    , data-default
     , directory
     , filepath
     , lcns
@@ -82,6 +84,7 @@ test-suite lcns-test
   build-depends:
       base >=4.8 && <5
     , brick
+    , data-default
     , directory
     , filepath
     , lcns

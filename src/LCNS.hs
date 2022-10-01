@@ -2,24 +2,22 @@
 
 module LCNS (tui) where
 
-import Relude
+import           Relude
 
-import Brick
-import Brick.Widgets.Border (border)
-import Brick.Widgets.List 
---import Brick.Widgets.List (list, renderList, listMoveBy, listMoveTo)
+import           Brick                     hiding (Down, on)
+import           Brick.Widgets.Border      (border)
+import           Brick.Widgets.List        (list, listMoveBy,
+                                            listSelectedElement, renderList)
+import           Data.Default              (def)
+import qualified Data.Sequence             as Seq
+import           Graphics.Vty.Attributes
+import           Graphics.Vty.Input.Events
+import           Lens.Micro                ((%~), (^.))
+import           System.Directory          hiding (isSymbolicLink)
+import           System.FilePath           (takeDirectory)
+import           System.Posix              (isDirectory, isSymbolicLink)
 
-import Graphics.Vty.Input.Events
-import Graphics.Vty.Attributes
-
-import System.Directory hiding (isSymbolicLink)
-import System.FilePath (takeDirectory)
-import System.Posix (isSymbolicLink, isDirectory)
-
-import qualified Data.Sequence as Seq
-import UITypes
-import Lens.Micro ((%~), (^.))
-import Lens.Micro.Extras (view)
+import           Types
 
 tui :: IO ()
 tui = do
@@ -28,21 +26,32 @@ tui = do
     pass
 
 buildInitialState :: IO AppState
-buildInitialState = do
+buildInitialState = refreshState def
+
+refreshState :: AppState -> IO AppState
+refreshState appState = do
     curDir <- getCurrentDirectory
     dirFiles <- mapM mkFileInfo =<< listDirectory curDir
-    let dirContents = list "dir" (Seq.fromList $ sortOn (not . isDirectory . view status) dirFiles) 1
-    pure $ AppState {_currentFiles = dirContents, _currentDir = curDir}
+    let dirContents = list "dir" (Seq.fromList $ sortBy sortDir dirFiles) 1
+    pure $ appState {_currentFiles = dirContents, _currentDir = curDir}
+    where
+        sortDir = case appState ^. sortFunction of
+          Def              -> compare `on` tuple
+          Reversed         -> compare `on` Down . tuple
+          Custom f         -> f
+          CustomReversed f -> flip f
+        tuple file = (Down (file ^. isDirLink || (file ^. status & isDirectory)), file ^. name)
 
 drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s = one $ border $ renderList renderFile True $ s ^. currentFiles where
 
     renderFile isSelected file =
         withAttr (if
-            | isSelected -> "selected"
-            | file ^. status & isSymbolicLink -> "link" -- note: getFileStatus does not detect symlinks
-            | file ^. status & isDirectory -> "directory"
-            | otherwise -> "file") 
+            | isSelected                      -> "selected"
+            | file ^. isDirLink               -> "dirlink"
+            | file ^. status & isSymbolicLink -> "link"
+            | file ^. status & isDirectory    -> "directory"
+            | otherwise                       -> "file")
         $ str $ file ^. name
 
 lcns :: App AppState e ResourceName
@@ -55,6 +64,7 @@ lcns = App
         [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
         , ("directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
         , ("link", currentAttr `withForeColor` cyan)
+        , ("dirlink", currentAttr `withForeColor` cyan `withStyle` bold)
         ]
     }
 
@@ -67,18 +77,20 @@ handleEvent s event = case event of
         EvKey KRight [] -> do
             changeDir selected
         EvKey KLeft [] -> changeDir $ takeDirectory $ s ^. currentDir
-        EvKey KDel [] -> liftIO (removeFile selected) >> updState
+        EvKey KDel [] -> liftIO (removeFile selected) >> updState'
+        EvKey (KChar 'r') [MCtrl] -> updState (sortFunction %~ invertSort)
         _ -> continue s
     _ -> continue s
     where
         selected = case listSelectedElement $ s ^. currentFiles of
             Just (_, file) -> file ^. name
-            Nothing -> error "impossible"
+            Nothing        -> error "impossible"
 
         changeState f = continue $ f s
-        updState = liftIO buildInitialState >>= continue
+        updState f = liftIO (refreshState $ f s) >>= continue
+        updState' = updState id
         changeDir dir = do
             liftIO $ whenM (doesDirectoryExist dir) $ setCurrentDirectory dir
-            updState
-            
+            updState'
+
 

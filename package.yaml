@@ -22,6 +22,7 @@ default-extensions:
 dependencies:
 - base >= 4.8 && < 5
 - brick
+- data-default
 - directory
 - relude
 - unix
