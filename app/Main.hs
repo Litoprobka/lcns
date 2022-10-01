@@ -1,10 +1,10 @@
 module Main (main) where
 
 import Relude
-import LCNS (tui)
+import Lcns.Recompilation (recompileAndRun)
 
 main :: IO ()
-main = tui
+main = recompileAndRun
  
 
 

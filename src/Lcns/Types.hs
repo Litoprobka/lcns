@@ -1,11 +1,8 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TemplateHaskell #-}
-
-module Types (
+module Lcns.Types (
     ResourceName,
-    FileInfo, name, perms, status, mkFileInfo, isDirLink,
+    FileInfo(..), mkFileInfo,
     SortFunction(..), invertSort,
-    AppState(..), currentFiles, currentDir, sortFunction
+    AppState(..),
 ) where
 
 import           Relude
@@ -13,7 +10,6 @@ import           Relude
 import           Brick.Widgets.List (GenericList, list)
 import           Data.Default
 import           Data.Sequence      as Seq (empty)
-import           Lens.Micro.TH      (makeLenses)
 import           System.Directory   (Permissions, doesDirectoryExist,
                                      doesFileExist, emptyPermissions,
                                      getPermissions)
@@ -24,21 +20,19 @@ import           System.Posix.Files (FileStatus, getSymbolicLinkStatus)
 type ResourceName = String -- what is this used for?
 
 data FileInfo = FileInfo
-    { _name      :: FilePath
-    , _perms     :: Permissions -- in theory, Permissions is more convenient than FileMode
-    , _status    :: FileStatus
-    , _isDirLink :: Bool -- an ugly workaround
+    { name      :: FilePath
+    , perms     :: Permissions -- in theory, Permissions is more convenient than FileMode
+    , status    :: FileStatus
+    , isDirLink :: Bool -- an ugly workaround
     }
 
-makeLenses ''FileInfo
-
 mkFileInfo :: FilePath -> IO FileInfo
-mkFileInfo _name = do
-    _perms <- ifM (doesFileExist _name `mOr` doesDirectoryExist _name)
-        (getPermissions _name)
+mkFileInfo name = do
+    perms <- ifM (doesFileExist name `mOr` doesDirectoryExist name)
+        (getPermissions name)
         (pure emptyPermissions)
-    _status <- getSymbolicLinkStatus _name
-    _isDirLink <- (isSymbolicLink _status &&) <$> doesDirectoryExist _name
+    status <- getSymbolicLinkStatus name
+    isDirLink <- (isSymbolicLink status &&) <$> doesDirectoryExist name
     pure $ FileInfo {..}
     where mOr = liftA2 (||)
 
@@ -55,17 +49,16 @@ invertSort (Custom f)         = CustomReversed f
 invertSort (CustomReversed f) = Custom f
 
 data AppState = AppState
-    { _currentFiles :: GenericList ResourceName Seq FileInfo
-    , _currentDir   :: FilePath
-    , _sortFunction :: SortFunction
+    { currentFiles :: GenericList ResourceName Seq FileInfo
+    , currentDir   :: FilePath
+    , sortFunction :: SortFunction
+    , showDotfiles :: Bool
     }
-
-makeLenses ''AppState
 
 instance Default AppState where
     def = AppState
-        { _currentFiles = list "empty" Seq.empty 0
-        , _currentDir = ""
-        , _sortFunction = Def
+        { currentFiles = list "empty" Seq.empty 0
+        , currentDir = ""
+        , sortFunction = Def
+        , showDotfiles = True
         }
-

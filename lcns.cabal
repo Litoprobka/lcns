@@ -23,15 +23,23 @@ source-repository head
 
 library
   exposed-modules:
-      LCNS
-      Types
+      Lcns
+      Lcns.Config
+      Lcns.Main
+      Lcns.Recompilation
+      Lcns.Types
   other-modules:
       Paths_lcns
   hs-source-dirs:
       src
   default-extensions:
+      GHC2021
       OverloadedStrings
       NoImplicitPrelude
+      OverloadedRecordDot
+      DuplicateRecordFields
+      NoFieldSelectors
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.8 && <5
@@ -39,8 +47,7 @@ library
     , data-default
     , directory
     , filepath
-    , microlens
-    , microlens-th
+    , process
     , relude
     , unix
     , vty
@@ -53,8 +60,13 @@ executable lcns
   hs-source-dirs:
       app
   default-extensions:
+      GHC2021
       OverloadedStrings
       NoImplicitPrelude
+      OverloadedRecordDot
+      DuplicateRecordFields
+      NoFieldSelectors
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.8 && <5
@@ -63,8 +75,7 @@ executable lcns
     , directory
     , filepath
     , lcns
-    , microlens
-    , microlens-th
+    , process
     , relude
     , unix
     , vty
@@ -78,8 +89,13 @@ test-suite lcns-test
   hs-source-dirs:
       test
   default-extensions:
+      GHC2021
       OverloadedStrings
       NoImplicitPrelude
+      OverloadedRecordDot
+      DuplicateRecordFields
+      NoFieldSelectors
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.8 && <5
@@ -88,8 +104,7 @@ test-suite lcns-test
     , directory
     , filepath
     , lcns
-    , microlens
-    , microlens-th
+    , process
     , relude
     , unix
     , vty

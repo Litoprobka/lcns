@@ -16,19 +16,23 @@ extra-source-files:
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
 default-extensions:
+- GHC2021
 - OverloadedStrings
 - NoImplicitPrelude
+- OverloadedRecordDot
+- DuplicateRecordFields
+- NoFieldSelectors
+- RecordWildCards
 
 dependencies:
 - base >= 4.8 && < 5
 - brick
 - data-default
 - directory
+- process
 - relude
 - unix
 - vty
-- microlens
-- microlens-th
 - filepath
 
 ghc-options:
