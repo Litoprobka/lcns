@@ -49,6 +49,7 @@ library
     , filepath
     , process
     , relude
+    , time
     , unix
     , vty
   default-language: Haskell2010
@@ -77,6 +78,7 @@ executable lcns
     , lcns
     , process
     , relude
+    , time
     , unix
     , vty
   default-language: Haskell2010
@@ -106,6 +108,7 @@ test-suite lcns-test
     , lcns
     , process
     , relude
+    , time
     , unix
     , vty
   default-language: Haskell2010

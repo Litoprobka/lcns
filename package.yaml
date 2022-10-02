@@ -29,11 +29,12 @@ dependencies:
 - brick
 - data-default
 - directory
+- filepath
 - process
 - relude
+- time
 - unix
 - vty
-- filepath
 
 ghc-options:
 - -Wall
