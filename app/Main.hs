@@ -5,7 +5,3 @@ import Lcns.Recompilation (recompileAndRun)
 
 main :: IO ()
 main = recompileAndRun
- 
-
-
-

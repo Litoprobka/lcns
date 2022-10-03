@@ -6,7 +6,6 @@ module Lcns.Main (lcns) where
 import           Relude
 
 import           Brick                     hiding (Down, on)
-import           Brick.Widgets.Border      (border)
 import           Brick.Widgets.List        (list, listMoveBy,
                                             listSelectedElement, renderList)
 import           Data.Default              (def)
@@ -18,6 +17,8 @@ import           System.Posix              (isDirectory, isSymbolicLink)
 
 import           Lcns.Config
 import           Lcns.Types
+import System.Posix.ByteString (COff(COff))
+import System.Posix (fileSize)
 
 
 lcns :: Config -> IO ()
@@ -46,8 +47,14 @@ refreshState appState = do
                      | otherwise = filter (not . isDotfile)
         isDotfile f = Just '.' == listToMaybe f.name
 
+preview :: Widget ResourceName
+preview = padAll 1 $ txt "preview" <=> txt "placeholder"
+
+parentDir :: Widget ResourceName
+parentDir = padAll 1 $ txt "parent dir" <=> txt "placeholder"
+
 drawTUI :: AppState -> [Widget ResourceName]
-drawTUI s = one $ border $ renderList renderFile True $ s.currentFiles where
+drawTUI s = one $ topPanel <=> hBox [parentDir, renderList renderFile True s.currentFiles, preview] <=> bottomPanel where
 
     renderFile isSelected file =
         withAttr (attrName $ if
@@ -56,7 +63,22 @@ drawTUI s = one $ border $ renderList renderFile True $ s.currentFiles where
             | file.status & isSymbolicLink -> "link"
             | file.status & isDirectory    -> "directory"
             | otherwise                    -> "file")
-        $ str $ file.name
+        $ line file
+
+    line file = padLeftRight 1 $ str file.name <+> fillLine <+> size file
+    size file = -- TODO: handle directorie
+        let (COff n) = fileSize file.status in str $ if -- this is ugly
+        | n < 1_000 -> show n <> " B"
+        | n < 1_000_000 -> n `div'` 1_000 <> " K"
+        | n < 1_000_000 -> n `div'` 1_000_000 <> " M"
+        | otherwise -> n `div'` 1_000_000_000_000 <> " G"
+    
+    div' :: Int64 -> Double -> String
+    div' x y = show $ fromIntegral x / y
+
+    topPanel = str s.currentDir <+> fillLine
+    bottomPanel = fillLine -- placeholder
+    fillLine = vLimit 1 $ fill ' '
 
 app :: App AppState e ResourceName
 app = App
@@ -64,13 +86,16 @@ app = App
     , appChooseCursor = showFirstCursor
     , appHandleEvent = handleEvent
     , appStartEvent = pass
-    , appAttrMap = const $ attrMap currentAttr
-        [ (attrName "selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
-        , (attrName "directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
-        , (attrName "link", currentAttr `withForeColor` cyan)
-        , (attrName "dirlink", currentAttr `withForeColor` cyan `withStyle` bold)
-        ]
+    , appAttrMap = mkAttrMap
     }
+
+mkAttrMap :: AppState -> AttrMap
+mkAttrMap = const $ attrMap (fg white) $ first attrName <$>
+        [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
+        , ("directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
+        , ("link", currentAttr `withForeColor` cyan)
+        , ("dirlink", currentAttr `withForeColor` cyan `withStyle` bold)
+        ]
 
 handleEvent :: BrickEvent n e -> EventM n AppState ()
 handleEvent event = case event of
@@ -89,7 +114,7 @@ handleEvent event = case event of
     where
         selected = get <&> (.currentFiles) <&> listSelectedElement <&> \case
             Just (_, file :: FileInfo) -> file.name
-            Nothing        -> error "impossible"
+            Nothing                    -> error "impossible"
 
         updState :: (AppState -> AppState) -> EventM n AppState ()
         updState f = do
