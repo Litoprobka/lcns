@@ -1,6 +1,10 @@
+{-# LANGUAGE MultiWayIf #-}
 module Lcns.Types (
     ResourceName,
-    FileInfo(..), mkFileInfo,
+    DirData(..),
+    FileData(..),
+    FileType(..),
+    FileInfo(..), mkFileInfo, isDir,
     SortFunction(..), invertSort,
     AppState(..),
 ) where
@@ -10,31 +14,53 @@ import           Relude
 import           Brick.Widgets.List (GenericList, list)
 import           Data.Default
 import           Data.Sequence      as Seq (empty)
-import           System.Directory   (Permissions, doesDirectoryExist,
-                                     doesFileExist, emptyPermissions,
-                                     getPermissions)
-import           System.Posix       (isSymbolicLink)
+import           System.Directory   (doesDirectoryExist, listDirectory)
+import           System.Posix       (isSymbolicLink, readSymbolicLink)
 import           System.Posix.Files (FileStatus, getSymbolicLinkStatus)
 --import System.FilePath -- note: a new version of filepath supports OsString API, I should consider switching when it gets into LTS
 
 type ResourceName = String -- what is this used for?
 
+data DirData = DirData
+    { itemCount :: Int
+    }
+data FileData = FileData -- this doesn't seem like good naming to me
+    {
+    }
+data FileType
+    = Dir DirData
+    | Link FileType
+    | File FileData
+
 data FileInfo = FileInfo
     { name      :: FilePath
-    , perms     :: Permissions -- in theory, Permissions is more convenient than FileMode
     , status    :: FileStatus
-    , isDirLink :: Bool -- an ugly workaround
+    , typedInfo :: FileType -- couldn't come up with a better name
     }
 
 mkFileInfo :: FilePath -> IO FileInfo
 mkFileInfo name = do
-    perms <- ifM (doesFileExist name `mOr` doesDirectoryExist name)
-        (getPermissions name)
-        (pure emptyPermissions)
     status <- getSymbolicLinkStatus name
-    isDirLink <- (isSymbolicLink status &&) <$> doesDirectoryExist name
-    pure $ FileInfo {..}
-    where mOr = liftA2 (||)
+    typedInfo <- mkTypedInfo status name
+
+    pure $ FileInfo {..} where
+        mkTypedInfo :: FileStatus -> FilePath -> IO FileType
+        mkTypedInfo status path = do
+            isDir' <- doesDirectoryExist path
+            if
+                | isDir' -> do
+                    itemCount <- length <$> listDirectory path
+                    pure $ Dir $ DirData{..}
+                | isSymbolicLink status -> do
+                    path' <- readSymbolicLink path
+                    status' <- getSymbolicLinkStatus path'
+                    Link <$> mkTypedInfo status' path'
+                | otherwise -> pure $ File FileData
+
+isDir :: FileInfo -> Bool
+isDir FileInfo{typedInfo = Dir _} = True
+isDir _                           = False
+
 
 data SortFunction
     = Def

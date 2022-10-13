@@ -13,12 +13,13 @@ import qualified Data.Sequence             as Seq
 import           Graphics.Vty.Attributes
 import           Graphics.Vty.Input.Events
 import           System.Directory          hiding (isSymbolicLink)
-import           System.Posix              (isDirectory, isSymbolicLink)
+import           System.Posix              (fileSize)
+import           System.Posix.ByteString   (COff (COff))
 
 import           Lcns.Config
 import           Lcns.Types
-import System.Posix.ByteString (COff(COff))
-import System.Posix (fileSize)
+import           Numeric                   (showFFloat)
+
 
 
 lcns :: Config -> IO ()
@@ -41,7 +42,7 @@ refreshState appState = do
           Reversed         -> compare `on` Down . tuple
           Custom f         -> f
           CustomReversed f -> flip f
-        tuple file = (Down (file.isDirLink || (file.status & isDirectory)), file.name)
+        tuple file = (Down $ isDir file, file.name)
 
         filterHidden | appState.showDotfiles = id
                      | otherwise = filter (not . isDotfile)
@@ -57,24 +58,32 @@ drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s = one $ topPanel <=> hBox [parentDir, renderList renderFile True s.currentFiles, preview] <=> bottomPanel where
 
     renderFile isSelected file =
-        withAttr (attrName $ if
-            | isSelected                   -> "selected"
-            | file.isDirLink               -> "dirlink"
-            | file.status & isSymbolicLink -> "link"
-            | file.status & isDirectory    -> "directory"
-            | otherwise                    -> "file")
+        withAttr (attrName $ case file.typedInfo of
+                _ | isSelected -> "selected"
+                Link (Dir _)   -> "dirlink"
+                Link _         -> "link" -- TODO: handle link -> link -> folder
+                Dir _          -> "directory"
+                File _         -> "file")
         $ line file
 
-    line file = padLeftRight 1 $ str file.name <+> fillLine <+> size file
-    size file = -- TODO: handle directorie
-        let (COff n) = fileSize file.status in str $ if -- this is ugly
-        | n < 1_000 -> show n <> " B"
-        | n < 1_000_000 -> n `div'` 1_000 <> " K"
-        | n < 1_000_000 -> n `div'` 1_000_000 <> " M"
-        | otherwise -> n `div'` 1_000_000_000_000 <> " G"
-    
-    div' :: Int64 -> Double -> String
-    div' x y = show $ fromIntegral x / y
+    line file = padLeftRight 1 $ str file.name <+> fillLine <+> str (size file)
+    size :: FileInfo -> String
+    size file@FileInfo{ typedInfo = File _ } =
+        let (COff n) = fileSize file.status in if -- this is ugly
+        | n < 2 ^! 10 -> show n <> " B"
+        | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " K"
+        | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " M"
+        | otherwise   -> n `div'` (2 ^! 30) $ " G"
+
+    size FileInfo{ typedInfo = Dir di } = show di.itemCount
+    size file@FileInfo{ typedInfo = Link l } = size file{ typedInfo = l }
+
+    infixl 8 ^!
+    (^!) :: Num a => a -> Int -> a
+    (^!) = (^)
+
+    div' :: Int64 -> Double -> String -> String
+    div' x y = showFFloat (Just 2) (fromIntegral x / y)
 
     topPanel = str s.currentDir <+> fillLine
     bottomPanel = fillLine -- placeholder
