@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
+-- This file has been generated from package.yaml by hpack version 0.35.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -25,15 +25,19 @@ library
   exposed-modules:
       Lcns
       Lcns.Config
+      Lcns.FileInfo
+      Lcns.FileTracker
+      Lcns.ListUtils
       Lcns.Main
       Lcns.Recompilation
+      Lcns.Sort
       Lcns.Types
+      Lcns.Utils
   other-modules:
       Paths_lcns
   hs-source-dirs:
       src
   default-extensions:
-      GHC2021
       OverloadedStrings
       NoImplicitPrelude
       OverloadedRecordDot
@@ -47,12 +51,13 @@ library
     , data-default
     , directory
     , filepath
+    , hinotify
     , process
     , relude
     , time
     , unix
     , vty
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable lcns
   main-is: Main.hs
@@ -61,7 +66,6 @@ executable lcns
   hs-source-dirs:
       app
   default-extensions:
-      GHC2021
       OverloadedStrings
       NoImplicitPrelude
       OverloadedRecordDot
@@ -75,13 +79,14 @@ executable lcns
     , data-default
     , directory
     , filepath
+    , hinotify
     , lcns
     , process
     , relude
     , time
     , unix
     , vty
-  default-language: Haskell2010
+  default-language: GHC2021
 
 test-suite lcns-test
   type: exitcode-stdio-1.0
@@ -91,7 +96,6 @@ test-suite lcns-test
   hs-source-dirs:
       test
   default-extensions:
-      GHC2021
       OverloadedStrings
       NoImplicitPrelude
       OverloadedRecordDot
@@ -105,10 +109,11 @@ test-suite lcns-test
     , data-default
     , directory
     , filepath
+    , hinotify
     , lcns
     , process
     , relude
     , time
     , unix
     , vty
-  default-language: Haskell2010
+  default-language: GHC2021

@@ -11,26 +11,28 @@ import           System.Posix      (executeFile)
 import           System.Process    (createProcess, cwd, proc, waitForProcess)
 
 data Dirs = Dirs
-    { cache :: FilePath
+    { cache  :: FilePath
     , config :: FilePath
     }
 
-
-recompileAndRun :: IO ()
-recompileAndRun = do
+recompileAndRun' :: Bool -> IO ()
+recompileAndRun' forceRecompile = do
     cache <- getXdgDirectory XdgCache "lcns"
     createDirectoryIfMissing True cache
-    config  <- getXdgDirectory XdgConfig "lcns"
+    config <- getXdgDirectory XdgConfig "lcns"
 
-    ifM (shouldRecompile Dirs{..})
+    ifM ((forceRecompile ||) <$> shouldRecompile Dirs{..})
         (do
         putTextLn "Recompiling lcns..."
         exitCode <- compile Dirs{..}
         guard $ exitCode == ExitSuccess)
 
         (putTextLn "Recompilation is not needed")
-        
+
     executeFile (cache </> "lcns") False [] Nothing
+
+recompileAndRun :: IO ()
+recompileAndRun = recompileAndRun' False
 
 
 compile :: Dirs -> IO ExitCode
@@ -56,7 +58,6 @@ shouldRecompile dirs = do
     binModTime <- getModTime $ dirs.cache </> "lcns"
     configModTime <- getModTime $ dirs.config </> "lcns.hs"
     pure $ fromMaybe True $ (<) <$> binModTime <*> configModTime
-    
 
 getModTime :: FilePath -> IO (Maybe UTCTime)
 getModTime path =

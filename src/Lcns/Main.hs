@@ -8,41 +8,59 @@ import           Relude
 import           Brick                     hiding (Down, on)
 import           Brick.Widgets.List        (list, listMoveBy,
                                             listSelectedElement, renderList)
-import           Data.Default              (def)
 import qualified Data.Sequence             as Seq
+import           Data.ByteString           (toFilePath)
 import           Graphics.Vty.Attributes
 import           Graphics.Vty.Input.Events
-import           System.Directory          hiding (isSymbolicLink)
-import           System.Posix              (fileSize)
-import           System.Posix.ByteString   (COff (COff))
-
-import           Lcns.Config
-import           Lcns.Types
 import           Numeric                   (showFFloat)
+import           System.Directory          hiding (isSymbolicLink)
+import           System.Posix              (executeFile, fileSize)
+import           System.Posix.ByteString   (COff (COff))
+import qualified System.INotify as IN      (initINotify, killINotify, Event(..))
 
-
+import           Brick.BChan               (BChan, newBChan)
+import           Lcns.Config
+import           Lcns.FileInfo
+import           Lcns.FileTracker
+import           Lcns.Sort
+import           Lcns.Types
+import           Lcns.Utils
+import qualified Lcns.ListUtils as LU
 
 lcns :: Config -> IO ()
 lcns _ = do
-    _ <- defaultMain app =<< buildInitialState
-    pass
+    channel <- newBChan 8 -- in theory, 3 should work
+    cleanup =<< mainWithFileTracker channel app =<< buildInitialState channel
 
-buildInitialState :: IO AppState
-buildInitialState = refreshState def
+buildInitialState :: BChan LcnsEvent -> IO AppState
+buildInitialState channel = do
+    inotify <- IN.initINotify
+    refreshState AppState
+            { currentFiles = list "empty" Seq.empty 0
+            , currentDir = ""
+            , sortFunction = SF { reversed = False, func = Nothing }
+            , showDotfiles = True
+            , inotify
+            , dirWatcher = Nothing
+            , parentWatcher = Nothing
+            , childWatcher = Nothing
+            , channel
+            }
 
 refreshState :: AppState -> IO AppState
 refreshState appState = do
-    curDir <- getCurrentDirectory
-    dirFiles <- mapM mkFileInfo =<< listDirectory curDir
-    let dirContents = list "dir" (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
-    pure $ appState {currentFiles = dirContents, currentDir = curDir}
+    currentDir <- getCurrentDirectory
+    dirWatcher <- liftIO $ Just -- mess
+        <$> watchDir appState.dirWatcher
+                     appState.inotify
+                     currentDir
+                     appState.channel
+
+    dirFiles <- mapM getFileInfo =<< listDirectory currentDir
+    let currentFiles = list "dir" (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
+    pure $ appState {currentFiles, currentDir, dirWatcher }
     where
-        sortDir = sortBy $ case appState.sortFunction of
-          Def              -> compare `on` tuple
-          Reversed         -> compare `on` Down . tuple
-          Custom f         -> f
-          CustomReversed f -> flip f
-        tuple file = (Down $ isDir file, file.name)
+        sortDir = sortBy $ cmpWith appState.sortFunction
 
         filterHidden | appState.showDotfiles = id
                      | otherwise = filter (not . isDotfile)
@@ -58,13 +76,18 @@ drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s = one $ topPanel <=> hBox [parentDir, renderList renderFile True s.currentFiles, preview] <=> bottomPanel where
 
     renderFile isSelected file =
-        withAttr (attrName $ case file.typedInfo of
-                _ | isSelected -> "selected"
-                Link (Dir _)   -> "dirlink"
-                Link _         -> "link" -- TODO: handle link -> link -> folder
-                Dir _          -> "directory"
-                File _         -> "file")
+        withAttr (attrName $ if isSelected
+            then "selected"
+            else fileAttr file.typedInfo)
         $ line file
+
+    fileAttr fileType = case fileType of
+        Link Nothing           -> "invalid-link"
+        Link (Just (Dir _))    -> "directory-link"
+        Link (Just (File _))   -> "link"
+        Link (Just nestedLink) -> fileAttr nestedLink
+        Dir _                  -> "directory"
+        File _                 -> "file"
 
     line file = padLeftRight 1 $ str file.name <+> fillLine <+> str (size file)
     size :: FileInfo -> String
@@ -76,7 +99,8 @@ drawTUI s = one $ topPanel <=> hBox [parentDir, renderList renderFile True s.cur
         | otherwise   -> n `div'` (2 ^! 30) $ " G"
 
     size FileInfo{ typedInfo = Dir di } = show di.itemCount
-    size file@FileInfo{ typedInfo = Link l } = size file{ typedInfo = l }
+    size file@FileInfo{ typedInfo = Link (Just l) } = size file{ typedInfo = l }
+    size FileInfo{ typedInfo = Link Nothing } = "N/A"
 
     infixl 8 ^!
     (^!) :: Num a => a -> Int -> a
@@ -89,7 +113,7 @@ drawTUI s = one $ topPanel <=> hBox [parentDir, renderList renderFile True s.cur
     bottomPanel = fillLine -- placeholder
     fillLine = vLimit 1 $ fill ' '
 
-app :: App AppState e ResourceName
+app :: App AppState LcnsEvent ResourceName
 app = App
     { appDraw = drawTUI
     , appChooseCursor = showFirstCursor
@@ -103,36 +127,83 @@ mkAttrMap = const $ attrMap (fg white) $ first attrName <$>
         [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
         , ("directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
         , ("link", currentAttr `withForeColor` cyan)
-        , ("dirlink", currentAttr `withForeColor` cyan `withStyle` bold)
+        , ("directory-link", currentAttr `withForeColor` cyan `withStyle` bold)
+        , ("invalid-link", currentAttr `withForeColor` blue)
         ]
 
-handleEvent :: BrickEvent n e -> EventM n AppState ()
-handleEvent event = case event of
-    VtyEvent vtye -> case vtye of
-        EvKey (KChar 'q') [MCtrl] -> halt
-        EvKey KUp [] -> modify $ \s -> s{currentFiles = s.currentFiles & listMoveBy (-1)}
-        EvKey KDown [] -> modify $ \s -> s{currentFiles = s.currentFiles & listMoveBy 1}
-        EvKey KRight [] -> do
-            changeDir =<< selected
-        EvKey KLeft [] -> changeDir ".."
-        EvKey KDel [] -> selected >>= liftIO . removeFile >> updState'
-        EvKey (KChar 'r') [MCtrl] -> updState $ \s -> s{sortFunction = invertSort s.sortFunction} -- perhaps dropping Lens wasn't a good idea
-        EvKey (KChar 'd') [MCtrl] -> updState $ \s -> s{showDotfiles = not s.showDotfiles}
-        _ -> pass
-    _ -> pass
-    where
-        selected = get <&> (.currentFiles) <&> listSelectedElement <&> \case
-            Just (_, file :: FileInfo) -> file.name
-            Nothing                    -> error "impossible"
+-- * Event handling * --
 
-        updState :: (AppState -> AppState) -> EventM n AppState ()
-        updState f = do
-            s <- get
-            ns <- liftIO $ refreshState $ f s
-            put ns
-        updState' = updState id
-        changeDir dir = do
-            liftIO $ whenM (doesDirectoryExist dir) $ setCurrentDirectory dir
-            updState'
+handleVtyEvent :: Event -> EventM n AppState ()
+handleVtyEvent event = case event of
+    EvKey (KChar 'q') [MCtrl] -> halt
+    EvKey KUp [] ->  updFiles $ listMoveBy (-1)
+    EvKey KDown [] -> updFiles $ listMoveBy  1
+    EvKey KRight [] -> do
+        onJust openFile =<< selected
+    EvKey KLeft [] -> openFile ".."
+    EvKey KDel [] -> selected >>= onJust (liftIO <. removeFile) >> refresh
+    EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ \s -> s{sortFunction = invertSort s.sortFunction} -- perhaps dropping Lens wasn't a good idea
+    EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ \s -> s{showDotfiles = not s.showDotfiles}
+    _ -> pass
+
+cleanup :: AppState -> IO ()
+cleanup state =
+    IN.killINotify state.inotify
+
+selected :: EventM n AppState (Maybe FilePath)
+selected =
+    gets (.currentFiles)
+    <&> listSelectedElement
+    <<&>> snd
+    <<&>> (.name)
+
+updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
+updAndRefresh f = do
+    s <- get
+    selectedFile <- selected
+    put =<< (liftIO $ refreshState $ f s)
+
+refresh :: EventM n AppState ()
+refresh = updAndRefresh id
+
+updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
+updFiles f = do
+    modify (\s -> s{currentFiles = f s.currentFiles})
+
+openFile :: FilePath -> EventM n AppState ()
+openFile file = do
+    liftIO $ do
+        dirExists <- doesDirectoryExist file
+        if dirExists
+            then setCurrentDirectory file
+            else executeFile "xdg-open" True [file] Nothing
+    refresh
+
+handleAppEvent :: LcnsEvent -> EventM n AppState ()
+handleAppEvent (DirEvent event) = case event of
+    IN.Attributes _ Nothing     -> pass
+    IN.Attributes _ (Just path) -> evUpdate path
+    IN.Created  _ path          -> evCreate path
+    IN.MovedIn  _ path _        -> evCreate path
+    IN.Deleted  _ path          -> evDelete path
+    IN.MovedOut _ path _        -> evDelete path
+    where
+        act f path = do
+            fi <- liftIO $ getFileInfo =<< toFilePath path
+            sortf <- gets (.sortFunction)
+            updFiles $ f sortf fi
+        evUpdate = act LU.update
+        evCreate = act LU.insert
+        evDelete rawPath = do
+            path <- liftIO $ toFilePath rawPath
+            updFiles $ LU.delete path
+
+handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()
+handleEvent event = case event of
+    VtyEvent vtye  -> handleVtyEvent vtye
+    AppEvent appEv -> handleAppEvent appEv
+    MouseDown {}   -> pass
+    MouseUp {}     -> pass
+
 
 

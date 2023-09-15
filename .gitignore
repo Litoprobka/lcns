@@ -2,4 +2,8 @@
 .vscode/
 stack.yaml.lock
 dist-newstyle/
+appLink/
+invalid-link
+nested-invalid-link
+readme-link
 *~
