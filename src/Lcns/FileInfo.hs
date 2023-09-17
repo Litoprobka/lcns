@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 
-module Lcns.FileInfo(getFileInfo, isDir, isRealDir) where
+module Lcns.FileInfo(getFileInfo, isDir, isRealDir, isLink) where
 
 import           Relude
 

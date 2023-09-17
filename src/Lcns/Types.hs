@@ -47,17 +47,17 @@ data SortFunction = SF
     }
 
 data AppState = AppState
-    { currentFiles  :: FileSeq
-    , currentDir    :: FilePath
-    , sortFunction  :: SortFunction
-    , showDotfiles  :: Bool
+    { currentFiles   :: FileSeq
+    , currentDir     :: FilePath
+    , sortFunction   :: SortFunction
+    , showDotfiles   :: Bool
 
     -- this is ugly, rewrite asap
-    , channel       :: BChan LcnsEvent
-    , inotify       :: INotify
-    , dirWatcher    :: Maybe WatchDescriptor
-    , parentWatcher :: Maybe WatchDescriptor
-    , childWatcher  :: Maybe WatchDescriptor
+    , channel        :: BChan LcnsEvent
+    , inotify        :: INotify
+    , dirWatcher     :: Maybe WatchDescriptor
+    , parentWatcher  :: Maybe WatchDescriptor
+    , childWatcher   :: Maybe WatchDescriptor
 
     , selectionCache :: HashMap FilePath FilePath
     }

@@ -8,24 +8,27 @@ import           Relude
 import           Brick                     hiding (Down, on)
 import           Brick.Widgets.List        (list, listMoveBy,
                                             listSelectedElement, renderList)
-import qualified Data.Sequence             as Seq
 import           Data.ByteString           (toFilePath)
+import qualified Data.HashMap.Strict       as Map
+import qualified Data.Sequence             as Seq
 import           Graphics.Vty.Attributes
 import           Graphics.Vty.Input.Events
 import           Numeric                   (showFFloat)
 import           System.Directory          hiding (isSymbolicLink)
+import           System.FilePath           (makeRelative)
+import qualified System.INotify            as IN (Event (..), initINotify,
+                                                  killINotify)
 import           System.Posix              (executeFile, fileSize)
 import           System.Posix.ByteString   (COff (COff))
-import qualified System.INotify as IN      (initINotify, killINotify, Event(..))
 
 import           Brick.BChan               (BChan, newBChan)
 import           Lcns.Config
 import           Lcns.FileInfo
 import           Lcns.FileTracker
+import qualified Lcns.ListUtils            as LU
 import           Lcns.Sort
 import           Lcns.Types
 import           Lcns.Utils
-import qualified Lcns.ListUtils as LU
 
 lcns :: Config -> IO ()
 lcns _ = do
@@ -45,12 +48,13 @@ buildInitialState channel = do
             , parentWatcher = Nothing
             , childWatcher = Nothing
             , channel
+            , selectionCache = Map.empty
             }
 
 refreshState :: AppState -> IO AppState
 refreshState appState = do
     currentDir <- getCurrentDirectory
-    dirWatcher <- liftIO $ Just -- mess
+    dirWatcher <- io $ Just -- mess
         <$> watchDir appState.dirWatcher
                      appState.inotify
                      currentDir
@@ -136,19 +140,19 @@ mkAttrMap = const $ attrMap (fg white) $ first attrName <$>
 handleVtyEvent :: Event -> EventM n AppState ()
 handleVtyEvent event = case event of
     EvKey (KChar 'q') [MCtrl] -> halt
-    EvKey KUp [] ->  updFiles $ listMoveBy (-1)
+    EvKey KUp [] -> updFiles $ listMoveBy (-1)
     EvKey KDown [] -> updFiles $ listMoveBy  1
     EvKey KRight [] -> do
         onJust openFile =<< selected
     EvKey KLeft [] -> openFile ".."
-    EvKey KDel [] -> selected >>= onJust (liftIO <. removeFile) >> refresh
+    EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> refresh
     EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ \s -> s{sortFunction = invertSort s.sortFunction} -- perhaps dropping Lens wasn't a good idea
     EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ \s -> s{showDotfiles = not s.showDotfiles}
     _ -> pass
 
 cleanup :: AppState -> IO ()
-cleanup state =
-    IN.killINotify state.inotify
+cleanup st =
+    IN.killINotify st.inotify
 
 selected :: EventM n AppState (Maybe FilePath)
 selected =
@@ -160,8 +164,7 @@ selected =
 updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
 updAndRefresh f = do
     s <- get
-    selectedFile <- selected
-    put =<< (liftIO $ refreshState $ f s)
+    put =<< io (refreshState $ f s)
 
 refresh :: EventM n AppState ()
 refresh = updAndRefresh id
@@ -172,12 +175,32 @@ updFiles f = do
 
 openFile :: FilePath -> EventM n AppState ()
 openFile file = do
-    liftIO $ do
-        dirExists <- doesDirectoryExist file
-        if dirExists
-            then setCurrentDirectory file
-            else executeFile "xdg-open" True [file] Nothing
-    refresh
+    ifM (io $ doesDirectoryExist file)
+        (do
+            curDir  <- io getCurrentDirectory
+            curFile <- selected
+            absFile <- makeAbs' file
+
+            modifySelection curDir (const curFile)
+            io $ setCurrentDirectory file
+            refresh
+
+            when (file == "..")
+                (modifySelection absFile $ Just <.
+                    fromMaybe (makeRelative absFile curDir))
+
+            gets ((.selectionCache) .> Map.lookup absFile)
+                >>= onJust (LU.select .> updFiles)
+            )
+        (io $ executeFile "xdg-open" True [file] Nothing)
+    where
+        modifySelection dir f = modify $ \st ->
+            st{selectionCache = Map.alter f dir st.selectionCache}
+
+        -- used to call canonicalizePath only when necessary
+        makeAbs' :: FilePath -> EventM n AppState FilePath
+        makeAbs' ".." = io $ canonicalizePath ".."
+        makeAbs' path = io $ makeAbsolute path
 
 handleAppEvent :: LcnsEvent -> EventM n AppState ()
 handleAppEvent (DirEvent event) = case event of
@@ -187,15 +210,16 @@ handleAppEvent (DirEvent event) = case event of
     IN.MovedIn  _ path _        -> evCreate path
     IN.Deleted  _ path          -> evDelete path
     IN.MovedOut _ path _        -> evDelete path
+    _                           -> pass -- for Ignored and the like
     where
         act f path = do
-            fi <- liftIO $ getFileInfo =<< toFilePath path
+            fi <- io $ getFileInfo =<< toFilePath path
             sortf <- gets (.sortFunction)
             updFiles $ f sortf fi
         evUpdate = act LU.update
         evCreate = act LU.insert
         evDelete rawPath = do
-            path <- liftIO $ toFilePath rawPath
+            path <- io $ toFilePath rawPath
             updFiles $ LU.delete path
 
 handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()

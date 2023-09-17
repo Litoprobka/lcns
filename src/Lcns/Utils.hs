@@ -44,3 +44,6 @@ flipOrder EQ = EQ
 
 onJust :: Applicative f => (a -> f ()) -> Maybe a -> f ()
 onJust = flip whenJust
+
+io :: MonadIO m => IO a -> m a
+io = liftIO

@@ -36,6 +36,7 @@ dependencies:
   - relude
   - time
   - unix
+  - unordered-containers
   - vty
 
 ghc-options:

@@ -1,4 +1,4 @@
-module Lcns.ListUtils where
+module Lcns.ListUtils (lookup, select, delete, insert, update) where
 
 -- some helpers to use Brick.GenericList as an associative array
 
@@ -9,11 +9,8 @@ import           Lcns.Utils
 import           Lcns.Sort
 
 import           Brick.Widgets.List
-    (list, listElements, listRemove, listMoveTo, listInsert)
+    (listElements, listRemove, listMoveTo, listInsert)
 import qualified Data.Sequence as Seq
-
-list' :: Seq FileInfo -> FileSeq
-list' seq = list "dir" seq 1
 
 lookup :: FilePath -> FileSeq -> Maybe Int
 lookup path = 
@@ -29,12 +26,12 @@ delete path =
     applyJust (lookup path) listRemove
 
 insert :: SortFunction -> FileInfo -> FileSeq -> FileSeq
-insert sortf fi seq =
-    seq
+insert sortf fi seq' =
+    seq'
     & listElements
-    .> Seq.takeWhileL ((cmpWith sortf fi) .> (/=LT))
+    .> Seq.takeWhileL (cmpWith sortf fi .> (/=LT))
     .> Seq.length
-    .> (\i -> listInsert i fi seq)
+    .> (\i -> listInsert i fi seq')
 
 update :: SortFunction -> FileInfo -> FileSeq -> FileSeq
 update sortf fi =
