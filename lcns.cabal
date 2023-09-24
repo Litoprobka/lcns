@@ -38,11 +38,13 @@ library
   hs-source-dirs:
       src
   default-extensions:
-      OverloadedStrings
-      NoImplicitPrelude
-      OverloadedRecordDot
+      DeriveGeneric
       DuplicateRecordFields
+      NoImplicitPrelude
       NoFieldSelectors
+      OverloadedStrings
+      OverloadedLabels
+      OverloadedRecordDot
       RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
@@ -52,6 +54,8 @@ library
     , directory
     , filepath
     , hinotify
+    , optics
+    , optics-extra
     , process
     , relude
     , time
@@ -67,11 +71,13 @@ executable lcns
   hs-source-dirs:
       app
   default-extensions:
-      OverloadedStrings
-      NoImplicitPrelude
-      OverloadedRecordDot
+      DeriveGeneric
       DuplicateRecordFields
+      NoImplicitPrelude
       NoFieldSelectors
+      OverloadedStrings
+      OverloadedLabels
+      OverloadedRecordDot
       RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -82,6 +88,8 @@ executable lcns
     , filepath
     , hinotify
     , lcns
+    , optics
+    , optics-extra
     , process
     , relude
     , time
@@ -98,11 +106,13 @@ test-suite lcns-test
   hs-source-dirs:
       test
   default-extensions:
-      OverloadedStrings
-      NoImplicitPrelude
-      OverloadedRecordDot
+      DeriveGeneric
       DuplicateRecordFields
+      NoImplicitPrelude
       NoFieldSelectors
+      OverloadedStrings
+      OverloadedLabels
+      OverloadedRecordDot
       RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -113,6 +123,8 @@ test-suite lcns-test
     , filepath
     , hinotify
     , lcns
+    , optics
+    , optics-extra
     , process
     , relude
     , time

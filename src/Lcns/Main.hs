@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 
 module Lcns.Main (lcns) where
@@ -14,6 +13,9 @@ import qualified Data.Sequence             as Seq
 import           Graphics.Vty.Attributes
 import           Graphics.Vty.Input.Events
 import           Numeric                   (showFFloat)
+import           Optics                    hiding (preview)
+import           Optics.Operators
+import           Optics.State.Operators
 import           System.Directory          hiding (isSymbolicLink)
 import           System.FilePath           (makeRelative)
 import qualified System.INotify            as IN (Event (..), initINotify,
@@ -146,8 +148,8 @@ handleVtyEvent event = case event of
         onJust openFile =<< selected
     EvKey KLeft [] -> openFile ".."
     EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> refresh
-    EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ \s -> s{sortFunction = invertSort s.sortFunction} -- perhaps dropping Lens wasn't a good idea
-    EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ \s -> s{showDotfiles = not s.showDotfiles}
+    EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ #sortFunction %~ invertSort
+    EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ #showDotfiles %~ not
     _ -> pass
 
 cleanup :: AppState -> IO ()
@@ -170,8 +172,7 @@ refresh :: EventM n AppState ()
 refresh = updAndRefresh id
 
 updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
-updFiles f = do
-    modify (\s -> s{currentFiles = f s.currentFiles})
+updFiles f = #currentFiles %= f
 
 openFile :: FilePath -> EventM n AppState ()
 openFile file = do
@@ -181,21 +182,19 @@ openFile file = do
             curFile <- selected
             absFile <- makeAbs' file
 
-            modifySelection curDir (const curFile)
+            #selectionCache % at curDir .= curFile
             io $ setCurrentDirectory file
             refresh
 
             when (file == "..")
-                (modifySelection absFile $ Just <.
-                    fromMaybe (makeRelative absFile curDir))
+                (#selectionCache % at absFile
+                    %= Just <. fromMaybe (makeRelative absFile curDir))
 
-            gets ((.selectionCache) .> Map.lookup absFile)
-                >>= onJust (LU.select .> updFiles)
+            preuse (#selectionCache % ix absFile) 
+                >>= onJust (LU.select .> modifying #currentFiles)
             )
         (io $ executeFile "xdg-open" True [file] Nothing)
     where
-        modifySelection dir f = modify $ \st ->
-            st{selectionCache = Map.alter f dir st.selectionCache}
 
         -- used to call canonicalizePath only when necessary
         makeAbs' :: FilePath -> EventM n AppState FilePath
@@ -215,7 +214,7 @@ handleAppEvent (DirEvent event) = case event of
         act f path = do
             fi <- io $ getFileInfo =<< toFilePath path
             sortf <- gets (.sortFunction)
-            updFiles $ f sortf fi
+            #currentFiles %= f sortf fi
         evUpdate = act LU.update
         evCreate = act LU.insert
         evDelete rawPath = do

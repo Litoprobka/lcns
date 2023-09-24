@@ -15,10 +15,9 @@ import           Relude
 import           Brick.Widgets.List (GenericList, list)
 
 import           Brick.BChan        (BChan)
-import           Data.Default
-import           Data.Sequence      as Seq (empty)
 import           System.INotify     (Event, INotify, WatchDescriptor)
 import           System.Posix.Files (FileStatus)
+import           GHC.Generics (Generic)
 --import System.FilePath -- note: a new version of filepath supports OsString API, I should consider switching when it gets into LTS
 
 type ResourceName = String -- what is this used for?
@@ -26,7 +25,7 @@ type FileSeq = GenericList ResourceName Seq FileInfo
 
 data DirData = DirData
     { itemCount :: Int
-    }
+    } deriving Generic
 data FileData = FileData -- this doesn't seem like good naming to me
     {
     }
@@ -39,12 +38,12 @@ data FileInfo = FileInfo
     { name      :: FilePath
     , status    :: FileStatus
     , typedInfo :: FileType -- couldn't come up with a better name
-    }
+    } deriving Generic
 
 data SortFunction = SF
     { reversed :: Bool
     , func     :: Maybe (FileInfo -> FileInfo -> Ordering)
-    }
+    } deriving Generic
 
 data AppState = AppState
     { currentFiles   :: FileSeq
@@ -60,7 +59,7 @@ data AppState = AppState
     , childWatcher   :: Maybe WatchDescriptor
 
     , selectionCache :: HashMap FilePath FilePath
-    }
+    } deriving Generic
 
 data LcnsEvent
     = DirEvent Event

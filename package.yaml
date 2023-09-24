@@ -18,11 +18,13 @@ extra-source-files:
 language: GHC2021
 
 default-extensions:
-  - OverloadedStrings
-  - NoImplicitPrelude
-  - OverloadedRecordDot
+  - DeriveGeneric
   - DuplicateRecordFields
+  - NoImplicitPrelude
   - NoFieldSelectors
+  - OverloadedStrings
+  - OverloadedLabels
+  - OverloadedRecordDot
   - RecordWildCards
 
 dependencies:
@@ -32,6 +34,8 @@ dependencies:
   - directory
   - filepath
   - hinotify
+  - optics
+  - optics-extra
   - process
   - relude
   - time
