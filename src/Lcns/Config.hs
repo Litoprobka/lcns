@@ -1,10 +1,10 @@
-module Lcns.Config (Config(..)) where
+module Lcns.Config (Config (..)) where
 
-import           Data.Default
+import Data.Default
 
 data Config = Config
-    { placeholder :: ()
-    }
+  { placeholder :: ()
+  }
 
 instance Default Config where
-    def = Config ()
+  def = Config ()

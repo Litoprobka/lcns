@@ -25,20 +25,21 @@ library
   exposed-modules:
       Lcns
       Lcns.Config
+      Lcns.EventHandling
       Lcns.FileInfo
+      Lcns.FilePathExtras
       Lcns.FileTracker
       Lcns.ListUtils
       Lcns.Main
+      Lcns.Prelude
       Lcns.Recompilation
       Lcns.Sort
       Lcns.Types
-      Lcns.Utils
   other-modules:
       Paths_lcns
   hs-source-dirs:
       src
   default-extensions:
-      DeriveGeneric
       DuplicateRecordFields
       NoImplicitPrelude
       NoFieldSelectors
@@ -50,13 +51,15 @@ library
   build-depends:
       base >=4.8 && <5
     , brick
+    , bytestring
     , data-default
     , directory
     , filepath
+    , filepath-bytestring
     , hinotify
     , optics
-    , optics-extra
     , process
+    , rawfilepath
     , relude
     , time
     , unix
@@ -71,7 +74,6 @@ executable lcns
   hs-source-dirs:
       app
   default-extensions:
-      DeriveGeneric
       DuplicateRecordFields
       NoImplicitPrelude
       NoFieldSelectors
@@ -83,49 +85,16 @@ executable lcns
   build-depends:
       base >=4.8 && <5
     , brick
+    , bytestring
     , data-default
     , directory
     , filepath
+    , filepath-bytestring
     , hinotify
     , lcns
     , optics
-    , optics-extra
     , process
-    , relude
-    , time
-    , unix
-    , unordered-containers
-    , vty
-  default-language: GHC2021
-
-test-suite lcns-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_lcns
-  hs-source-dirs:
-      test
-  default-extensions:
-      DeriveGeneric
-      DuplicateRecordFields
-      NoImplicitPrelude
-      NoFieldSelectors
-      OverloadedStrings
-      OverloadedLabels
-      OverloadedRecordDot
-      RecordWildCards
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      base >=4.8 && <5
-    , brick
-    , data-default
-    , directory
-    , filepath
-    , hinotify
-    , lcns
-    , optics
-    , optics-extra
-    , process
+    , rawfilepath
     , relude
     , time
     , unix
