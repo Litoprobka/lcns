@@ -4,7 +4,6 @@ module Lcns.Prelude (
   module Optics,
   module Optics.Operators,
   module Optics.State.Operators,
-  RawFilePath,
   (<..),
   (.>),
   (<.),
@@ -24,7 +23,6 @@ import Lcns.Types
 import Optics
 import Optics.Operators
 import Optics.State.Operators
-import RawFilePath (RawFilePath)
 
 infixr 9 <..
 
@@ -67,8 +65,8 @@ flipOrder GT = LT
 flipOrder LT = GT
 flipOrder EQ = EQ
 
-onJust :: (Applicative f) => (a -> f ()) -> Maybe a -> f ()
+onJust :: Applicative f => (a -> f ()) -> Maybe a -> f ()
 onJust = flip whenJust
 
-io :: (MonadIO m) => IO a -> m a
+io :: MonadIO m => IO a -> m a
 io = liftIO

@@ -18,6 +18,7 @@ extra-source-files:
 language: GHC2021
 
 default-extensions:
+  - DataKinds
   - DuplicateRecordFields
   - NoImplicitPrelude
   - NoFieldSelectors
@@ -32,12 +33,10 @@ dependencies:
   - bytestring
   - data-default
   - directory
-  - filepath
-  - filepath-bytestring
+  - filepath >= 1.4.100.4
   - hinotify
   - optics
   - process
-  - rawfilepath
   - relude
   - time
   - unix

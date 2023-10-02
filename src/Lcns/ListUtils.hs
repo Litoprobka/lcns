@@ -12,16 +12,16 @@ import Data.Sequence qualified as Seq
 import Lcns.Prelude
 import Lcns.Sort
 
-lookup :: RawFilePath -> FileSeq -> Maybe Int
+lookup :: Path Rel -> FileSeq -> Maybe Int
 lookup path =
   listElements
     .> Seq.findIndexL ((.name) .> (== path))
 
-select :: RawFilePath -> FileSeq -> FileSeq
+select :: Path Rel -> FileSeq -> FileSeq
 select path =
   applyJust (lookup path) listMoveTo
 
-delete :: RawFilePath -> FileSeq -> FileSeq
+delete :: Path Rel -> FileSeq -> FileSeq
 delete path =
   applyJust (lookup path) listRemove
 
@@ -29,9 +29,9 @@ insert :: SortFunction -> FileInfo -> FileSeq -> FileSeq
 insert sortf fi seq' =
   seq'
     & listElements
-    .> Seq.takeWhileL (cmpWith sortf fi .> (/= LT))
-    .> Seq.length
-    .> (\i -> listInsert i fi seq')
+      .> Seq.takeWhileL (cmpWith sortf fi .> (/= LT))
+      .> Seq.length
+      .> (\i -> listInsert i fi seq')
 
 update :: SortFunction -> FileInfo -> FileSeq -> FileSeq
 update sortf fi =

@@ -14,15 +14,8 @@ import Brick.Widgets.List (
  )
 import Data.Sequence qualified as Seq
 import Graphics.Vty.Input.Events
-import Lcns.FilePathExtras (makeAbsolute)
-import RawFilePath.Directory
-import System.FilePath.ByteString
+import Lcns.Path
 import System.INotify qualified as IN (Event (..))
-import System.Posix.ByteString (
-  changeWorkingDirectory,
-  executeFile,
-  getWorkingDirectory,
- )
 
 handleVtyEvent :: Event -> EventM n AppState ()
 handleVtyEvent event = case event of
@@ -31,7 +24,7 @@ handleVtyEvent event = case event of
   EvKey KDown [] -> updFiles $ listMoveBy 1
   EvKey KRight [] -> do
     onJust openFile =<< selected
-  EvKey KLeft [] -> openFile ".."
+  EvKey KLeft [] -> openFile $ fromRaw ".."
   EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> refresh
   EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ #sortFunction %~ invertSort
   EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ #showDotfiles %~ not
@@ -48,12 +41,12 @@ handleAppEvent (DirEvent event) = case event of
   _ -> pass -- for Ignored and the like
  where
   act f path = do
-    fi <- io $ getFileInfo path
+    fi <- io $ getFileInfo $ fromRaw path
     sortf <- gets (.sortFunction)
     #files %= f sortf fi
   evUpdate = act LU.update
   evCreate = act LU.insert
-  evDelete = updFiles . LU.delete
+  evDelete = updFiles <. LU.delete <. fromRaw
 
 handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()
 handleEvent event = case event of
@@ -62,7 +55,7 @@ handleEvent event = case event of
   MouseDown{} -> pass
   MouseUp{} -> pass
 
-selected :: EventM n AppState (Maybe RawFilePath)
+selected :: EventM n AppState (Maybe (Path Rel))
 selected =
   preuse $
     #files
@@ -82,36 +75,36 @@ refresh = updAndRefresh id
 updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
 updFiles f = #files %= f
 
-openFile :: RawFilePath -> EventM n AppState ()
-openFile file = do
+openFile :: Path Rel -> EventM n AppState ()
+openFile file@(Path name) = do
   ifM
-    (io $ doesDirectoryExist file)
+    (doesDirectoryExist file)
     ( do
-        curDir <- io getWorkingDirectory
+        curDir <- getCurrentDirectory
         curFile <- selected
-        absFile <- io $ makeAbsolute file
+        absFile <- makeAbsolute file
 
         #selections % at curDir .= curFile
-        io $ changeWorkingDirectory file
+        setCurrentDirectory file
         refresh
 
         when
-          (file == "..")
+          (fromRel file == "..")
           ( #selections
               % at absFile
               %= Just
-                <. fromMaybe (makeRelative absFile curDir)
+                <. fromMaybe (takeFileName curDir)
           )
 
         preuse (#selections % ix absFile)
           >>= onJust (LU.select .> modifying #files)
     )
-    (io $ executeFile "xdg-open" True [file] Nothing)
+    (executeFile (fromRaw "xdg-open") True [name] Nothing)
 
 refreshState :: AppState -> IO AppState
 refreshState appState =
   do
-    dir <- getWorkingDirectory
+    dir <- getCurrentDirectory
 
     dirWatcher <-
       Just -- mess
@@ -121,7 +114,7 @@ refreshState appState =
           dir
           appState.watchers.channel
 
-    dirFiles <- mapM getFileInfo =<< listDirectory dir
+    dirFiles <- mapM (getFileInfo <=< makeAbsolute) =<< listDirectory dir
     let files = list "dir" (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
 
     pure $
@@ -133,5 +126,6 @@ refreshState appState =
   filterHidden
     | appState.showDotfiles = id
     | otherwise = filter (not . isDotfile)
+
   isDotfile :: FileInfo -> Bool
-  isDotfile f = f.name ^? _head == Just (toEnum $ fromEnum '.')
+  isDotfile f = f.name ^? to fromRel % _head == Just (toEnum $ fromEnum '.')

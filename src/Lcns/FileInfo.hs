@@ -6,37 +6,38 @@ module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink) where
 import Lcns.Prelude
 
 import Control.Exception (try)
-import RawFilePath.Directory (listDirectory)
-import System.Posix.ByteString (
-  FileStatus,
-  getFileStatus,
-  getSymbolicLinkStatus,
-  isDirectory,
-  isSymbolicLink,
-  readSymbolicLink,
- )
+import Lcns.Path
 
-getFileInfo :: RawFilePath -> IO FileInfo
-getFileInfo name = do
-  status' <- getSymbolicLinkStatus name
-  (typedInfo, status) <- getTypedInfo status' name
+import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
-  pure $ FileInfo{..}
+getFileInfo :: Path Abs -> IO FileInfo
+getFileInfo path = do
+  let name = takeFileName path
+  status' <- getSymbolicLinkStatus path
+  (typedInfo, status) <- getTypedInfo status' path
+
+  pure FileInfo{..}
+
+getTypedInfo :: FileStatus -> Path Abs -> IO (FileType, FileStatus)
+getTypedInfo status path' = do
+  if
+    | isDirectory status -> getDirInfo
+    | isSymbolicLink status -> getSymlinkInfo
+    | otherwise -> pure (File FileData, status)
  where
-  getTypedInfo :: FileStatus -> RawFilePath -> IO (FileType, FileStatus)
-  getTypedInfo status path = do
-    if
-      | isDirectory status -> do
-          itemCount <- length <$> listDirectory path
-          pure (Dir $ DirData{..}, status)
-      | isSymbolicLink status -> do
-          path' <- readSymbolicLink path
-          try @SomeException (getFileStatus path')
-            >>= mapM (`getTypedInfo` path')
-              <&> \case
-                Left _ -> (Link Nothing, status)
-                Right fileInfo -> first (Link . Just) fileInfo
-      | otherwise -> pure (File FileData, status)
+  getSymlinkInfo = do
+    linkedPath <- withPath id (takeDirectory path' </>) <$> readSymbolicLink path'
+    try @SomeException (getFileStatus linkedPath)
+      >>= mapM (`getTypedInfo` linkedPath)
+        <&> \case
+          Left _ -> (Link Nothing, status)
+          Right fileInfo -> first (Link . Just) fileInfo
+
+  getDirInfo = do
+    itemCount <-
+      try @SomeException (listDirectory path')
+        <&> either (const Nothing) (Just <. length)
+    pure (Dir DirData{..}, status)
 
 isRealDir :: FileInfo -> Bool
 isRealDir FileInfo{typedInfo = Dir _} = True

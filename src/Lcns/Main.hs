@@ -11,6 +11,7 @@ import Graphics.Vty.Attributes
 import Lcns.Config
 import Lcns.EventHandling
 import Lcns.FileTracker
+import Lcns.Path
 import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (INotify, withINotify)
@@ -37,7 +38,7 @@ buildInitialState channel inotify = do
   refreshState
     AppState
       { files = list "empty" Seq.empty 0
-      , dir = ""
+      , dir = Path mempty
       , sortFunction = SF{reversed = False, func = Nothing}
       , showDotfiles = True
       , watchers
@@ -74,7 +75,7 @@ drawTUI s =
     Dir _ -> "directory"
     File _ -> "file"
 
-  line file = padLeftRight 1 $ txt (decodeUtf8 file.name) <+> fillLine <+> str (size file)
+  line file = padLeftRight 1 $ txt (decode file.name) <+> fillLine <+> str (size file)
   size :: FileInfo -> String
   size file@FileInfo{typedInfo = File _} =
     let (COff n) = fileSize file.status
@@ -84,7 +85,7 @@ drawTUI s =
           | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " K"
           | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " M"
           | otherwise -> n `div'` (2 ^! 30) $ " G"
-  size FileInfo{typedInfo = Dir di} = show di.itemCount
+  size FileInfo{typedInfo = Dir di} = maybe "N/A" show di.itemCount
   size file@FileInfo{typedInfo = Link (Just l)} = size file{typedInfo = l}
   size FileInfo{typedInfo = Link Nothing} = "N/A"
 
@@ -95,7 +96,7 @@ drawTUI s =
   div' :: Int64 -> Double -> String -> String
   div' x y = showFFloat (Just 2) (fromIntegral x / y)
 
-  topPanel = txt (decodeUtf8 s.dir) <+> fillLine
+  topPanel = txt (decode s.dir) <+> fillLine
   bottomPanel = fillLine -- placeholder
   fillLine = vLimit 1 $ fill ' '
 

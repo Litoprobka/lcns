@@ -27,10 +27,10 @@ library
       Lcns.Config
       Lcns.EventHandling
       Lcns.FileInfo
-      Lcns.FilePathExtras
       Lcns.FileTracker
       Lcns.ListUtils
       Lcns.Main
+      Lcns.Path
       Lcns.Prelude
       Lcns.Recompilation
       Lcns.Sort
@@ -40,6 +40,7 @@ library
   hs-source-dirs:
       src
   default-extensions:
+      DataKinds
       DuplicateRecordFields
       NoImplicitPrelude
       NoFieldSelectors
@@ -54,12 +55,10 @@ library
     , bytestring
     , data-default
     , directory
-    , filepath
-    , filepath-bytestring
+    , filepath >=1.4.100.4
     , hinotify
     , optics
     , process
-    , rawfilepath
     , relude
     , time
     , unix
@@ -74,6 +73,7 @@ executable lcns
   hs-source-dirs:
       app
   default-extensions:
+      DataKinds
       DuplicateRecordFields
       NoImplicitPrelude
       NoFieldSelectors
@@ -88,13 +88,11 @@ executable lcns
     , bytestring
     , data-default
     , directory
-    , filepath
-    , filepath-bytestring
+    , filepath >=1.4.100.4
     , hinotify
     , lcns
     , optics
     , process
-    , rawfilepath
     , relude
     , time
     , unix

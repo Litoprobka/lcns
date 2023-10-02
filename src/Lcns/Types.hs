@@ -7,6 +7,8 @@
 module Lcns.Types (
   ResourceName,
   FileSeq,
+  Relativity (..),
+  Path (..),
   DirData (..),
   FileData (..),
   FileType (..),
@@ -21,15 +23,24 @@ where
 import Brick.BChan (BChan)
 import Brick.Widgets.List (GenericList)
 import Optics.TH (makeFieldLabelsNoPrefix)
-import RawFilePath (RawFilePath)
 import Relude
 import System.INotify (Event, INotify, WatchDescriptor)
+import System.OsPath.Posix (PosixPath)
 import System.Posix.Files (FileStatus)
 
-type ResourceName = String -- what is this used for?
+type ResourceName = Text -- what is this used for?
+
+data Relativity
+  = Rel
+  | Abs
+  | Unknown
+
+-- invariant: Path should never contain a trailing slash
+newtype Path (rel :: Relativity) = Path PosixPath
+  deriving (Eq, Ord, Hashable, Show)
 
 newtype DirData = DirData
-  { itemCount :: Int
+  { itemCount :: Maybe Int
   }
 
 makeFieldLabelsNoPrefix ''DirData
@@ -44,7 +55,7 @@ data FileType
   | File FileData
 
 data FileInfo = FileInfo
-  { name :: RawFilePath
+  { name :: Path Rel
   , status :: FileStatus
   , typedInfo :: FileType -- couldn't come up with a better name
   }
@@ -76,11 +87,11 @@ makeFieldLabelsNoPrefix ''INotifyState
 
 data AppState = AppState
   { files :: FileSeq
-  , dir :: RawFilePath
+  , dir :: Path Abs
   , sortFunction :: SortFunction
   , showDotfiles :: Bool
   , watchers :: INotifyState
-  , selections :: HashMap RawFilePath RawFilePath
+  , selections :: HashMap (Path Abs) (Path Rel)
   }
 
 makeFieldLabelsNoPrefix ''AppState
