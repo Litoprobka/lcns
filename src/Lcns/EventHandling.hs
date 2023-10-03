@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Lcns.EventHandling (refreshState, handleVtyEvent, handleAppEvent, handleEvent) where
 
 import Lcns.FileInfo
@@ -9,13 +11,18 @@ import Lcns.Sort
 import Brick
 import Brick.Widgets.List (
   list,
+  listElementsL,
   listMoveBy,
   listSelectedElement,
+  listSelectedL,
  )
 import Data.Sequence qualified as Seq
 import Graphics.Vty.Input.Events
 import Lcns.Path
 import System.INotify qualified as IN (Event (..))
+
+log :: (MonadIO m, Show a) => String -> a -> m ()
+log comment msg = io $ appendFile "/home/litoprobka/code/lcns/log" $ comment ++ ": " ++ show msg ++ "\n"
 
 handleVtyEvent :: Event -> EventM n AppState ()
 handleVtyEvent event = case event of
@@ -23,6 +30,7 @@ handleVtyEvent event = case event of
   EvKey KUp [] -> updFiles $ listMoveBy (-1)
   EvKey KDown [] -> updFiles $ listMoveBy 1
   EvKey KRight [] -> do
+    log "open" =<< selected
     onJust openFile =<< selected
   EvKey KLeft [] -> openFile $ fromRaw ".."
   EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> refresh
@@ -47,15 +55,20 @@ handleAppEvent (DirEvent dir event) = case event of
     Child -> #childFiles
 
   getParent = case dir of
-    Current -> pure ""
-    Parent -> io getParentDir
-    Child -> selected <&> fromMaybe ""
+    Current -> pure Nothing
+    Parent -> Just <$> getParentDirectory
+    Child -> traverse makeAbsolute =<< selected
 
-  act f path = do
-    parent <- getParent
-    fi <- io $ getFileInfo $ parent </> $ fromRaw path
-    sortf <- gets (.sortFunction)
-    files %= f sortf fi
+  act f path =
+    getParent >>= \case
+      Just parent -> do
+        fileInfo <- io $ getFileInfo $ parent </> fromRaw path
+        sortf <- gets (.sortFunction)
+        files %= f sortf fileInfo
+      Nothing -> do
+        files % lensVL listElementsL .= Seq.empty
+        files % lensVL listSelectedL .= Nothing
+  -- I'm not sure how GenericList behaves when `listeSelected` is Just <out of bounds>
 
   evUpdate = act LU.update
   evCreate = act LU.insert
@@ -68,7 +81,7 @@ handleEvent event = case event of
   MouseDown{} -> pass
   MouseUp{} -> pass
 
-selection :: AffineFold AppState RawFilePath
+selection :: AffineFold AppState (Path Rel)
 selection =
   #files
     % to listSelectedElement
@@ -76,7 +89,7 @@ selection =
     % _2
     % #name
 
-selected :: EventM n AppState (Maybe RawFilePath)
+selected :: EventM n AppState (Maybe (Path Rel))
 selected = preuse selection
 
 updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
@@ -98,7 +111,7 @@ openFile file@(Path name) = do
     (doesDirectoryExist file)
     ( do
         curDir <- getCurrentDirectory
-        parentDir <- io getParentDir
+        parentDir <- getParentDirectory
         curFile <- selected
         absFile <- makeAbsolute file
 
@@ -115,31 +128,43 @@ openFile file@(Path name) = do
 refreshState :: AppState -> IO AppState
 refreshState appState =
   do
+    log "refreshing with" appState.dir
+    log "parent" =<< getDir Parent
+    log "current" =<< getDir Current
+    log "child" =<< getDir Child
     dir <- getCurrentDirectory
-    parent <- getParentDir
-
-    curWatcher <- refreshWatch dir #dirWatcher
-    parentWatcher <- refreshWatch parent #parentWatcher
+    parent <- getParentDirectory
 
     files <- refreshFiles "current files" dir
     parentFiles <- refreshFiles "parent files" parent
 
-    pure $
-      appState{dir, files, parentFiles}
-        & #watchers % #dirWatcher .~ curWatcher
-        & #watchers % #parentWatcher .~ parentWatcher
+    appState{dir, files, parentFiles}
+      & traverseOf (#watchers % #all) refreshWatch
  where
-  refreshWatch :: DemoteDir dir => RawFilePath -> Lens' INotifyState (DirWatcher dir) -> IO (DirWatcher dir)
-  refreshWatch dir optic = do
-    watchDir
-      (appState ^. #watchers % optic)
-      appState.watchers.inotify
-      dir
-      appState.watchers.channel
+  refreshWatch :: DirWatcher -> IO DirWatcher
+  refreshWatch dw =
+    getDir (dw ^. #dir)
+      >>= \case
+        Nothing -> killWatcher dw
+        Just dir ->
+          watchDir
+            dw
+            appState.watchers.inotify
+            dir
+            appState.watchers.channel
 
-  refreshFiles :: Text -> RawFilePath -> IO FileSeq
+  getDir :: WhichDir -> IO (Maybe (Path Abs))
+  getDir Parent = Just <$> getParentDirectory
+  getDir Current = Just <$> getCurrentDirectory
+  getDir Child = do
+    dir <- getCurrentDirectory
+    (appState ^? #selections % ix dir)
+      <&> (dir </>)
+      & pure
+
+  refreshFiles :: Text -> Path Abs -> IO FileSeq
   refreshFiles listName dir = do
-    dirFiles <- mapM ((getFileInfo <. (dir </>)) <=< makeAbsolute) =<< listDirectory dir
+    dirFiles <- mapM getFileInfo =<< listDirectoryAbs dir
     pure $ list listName (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
 
   sortDir = sortBy $ cmpWith appState.sortFunction
@@ -147,7 +172,6 @@ refreshState appState =
   filterHidden
     | appState.showDotfiles = id
     | otherwise = filter (not . isDotfile)
-
 
   isDotfile :: FileInfo -> Bool
   isDotfile f = f.name ^? to fromRel % _head == Just (toEnum $ fromEnum '.')

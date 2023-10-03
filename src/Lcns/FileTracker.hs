@@ -1,4 +1,4 @@
-module Lcns.FileTracker (watchDir, mainWithFileTracker) where
+module Lcns.FileTracker (watchDir, mainWithFileTracker, killWatcher) where
 
 import Lcns.Prelude
 
@@ -14,19 +14,6 @@ import System.INotify (
   removeWatch,
  )
 
--- reinventing a tiny bit of singletons, huh
-class DemoteDir (dir :: WhichDir) where
-  whichDir :: DirWatcher dir -> WhichDir
-
-instance DemoteDir 'Current where
-  whichDir = const Current
-
-instance DemoteDir 'Parent where
-  whichDir = const Parent
-
-instance DemoteDir 'Child where
-  whichDir = const Child
-
 trackedEvents :: [EventVariety]
 trackedEvents =
   [ -- Attrib
@@ -35,27 +22,25 @@ trackedEvents =
   , Delete
   ]
 
-watchDir :: Maybe WatchDescriptor -> INotify -> Path Abs -> BChan LcnsEvent -> IO WatchDescriptor
-watchDir Nothing = watchNew
-watchDir (Just descriptor) = watchOther descriptor
-
-watchOther :: WatchDescriptor -> INotify -> Path Abs -> BChan LcnsEvent -> IO WatchDescriptor
-watchOther descriptor inotify path channel = do
-  removeWatch descriptor
-  watchNew inotify path channel
-
-watchDir :: DemoteDir dir => DirWatcher dir -> INotify -> Path Abs -> BChan LcnsEvent -> IO (DirWatcher dir)
-watchDir w@(DirWatcher maybeWatch) inotify path channel = do
-  maybeWatch & onJust removeWatch
-  watchNew (whichDir w) inotify path channel
-
-watchNew :: WhichDir -> INotify -> Path Abs -> BChan LcnsEvent -> IO (DirWatcher dir)
-watchNew dir inotify path channel =
-  DirWatcher <. Just <$> addWatch inotify trackedEvents (fromAbs path) sendEvent
+-- at some point I should figure out linear types & linear optics, then use them here
+-- but for now it is just an invariant:
+-- `DirWatcher`s should only be interacted with by `watchDir`/ killWatcher
+watchDir :: DirWatcher -> INotify -> Path Abs -> BChan LcnsEvent -> IO DirWatcher
+watchDir w inotify path channel = do
+  print $ w ^. #dir
+  print path
+  _ <- killWatcher w
+  newWatch <- addWatch inotify trackedEvents (fromAbs path) sendEvent
+  pure $ w & #watcher ?~ newWatch
  where
   sendEvent Ignored = pass
   sendEvent event =
-    writeBChan channel (DirEvent dir event)
+    writeBChan channel $ DirEvent (w ^. #dir) event
+
+killWatcher :: DirWatcher -> IO DirWatcher
+killWatcher w = do
+  w ^. #watcher & onJust removeWatch
+  pure $ w & #watcher .~ Nothing
 
 mainWithFileTracker :: Ord n => BChan e -> App s e n -> s -> IO s
 mainWithFileTracker channel app st = do

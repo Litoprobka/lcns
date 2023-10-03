@@ -31,18 +31,16 @@ buildInitialState channel inotify = do
         INotifyState
           { inotify
           , channel
-          , dirWatcher = DirWatcher Nothing
-          , parentWatcher = DirWatcher Nothing
-          , childWatcher = DirWatcher Nothing
+          , parentWatcher = DirWatcher{dir = Parent, watcher = Nothing}
+          , dirWatcher = DirWatcher{dir = Current, watcher = Nothing}
+          , childWatcher = DirWatcher{dir = Child, watcher = Nothing}
           }
   refreshState
     AppState
-      { files = list "empty" Seq.empty 0
-      , dir = Path mempty
       { files = list "files" Seq.empty 0
       , parentFiles = list "parent files" Seq.empty 0
       , childFiles = list "child files" Seq.empty 0
-      , dir = ""
+      , dir = Path mempty
       , sortFunction = SF{reversed = False, func = Nothing}
       , showDotfiles = True
       , watchers
@@ -59,7 +57,7 @@ drawTUI s =
       <=> hBox [renderDir False s.parentFiles, renderDir True s.files, preview]
       <=> bottomPanel
  where
-  topPanel = txt (decodeUtf8 s.dir) <+> fillLine
+  topPanel = txt (decode s.dir) <+> fillLine
   bottomPanel = fillLine -- placeholder
 
 renderDir :: Bool -> FileSeq -> Widget ResourceName
@@ -69,7 +67,7 @@ fillLine :: Widget n
 fillLine = vLimit 1 $ fill ' '
 
 line :: FileInfo -> Widget n
-line file = padLeftRight 1 $ txt (decodeUtf8 file.name) <+> fillLine <+> str (size file)
+line file = padLeftRight 1 $ txt (decode file.name) <+> fillLine <+> str (size file)
 
 renderFile :: Bool -> FileInfo -> Widget n
 renderFile isSelected file =
@@ -99,7 +97,7 @@ size file@FileInfo{typedInfo = File _} =
         | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
         | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
         | otherwise -> n `div'` (2 ^! 30) $ " GiB"
-size FileInfo{typedInfo = Dir di} = show di.itemCount
+size FileInfo{typedInfo = Dir di} = maybe "?" show di.itemCount
 size file@FileInfo{typedInfo = Link (Just l)} = size file{typedInfo = l}
 size FileInfo{typedInfo = Link Nothing} = "N/A"
 

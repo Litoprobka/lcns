@@ -24,7 +24,14 @@ where
 
 import Brick.BChan (BChan)
 import Brick.Widgets.List (GenericList)
-import Optics.TH (makeFieldLabelsNoPrefix)
+import Optics.Operators ((.~))
+import Optics.TH (
+  fieldLabelsRulesFor,
+  generateUpdateableOptics,
+  makeFieldLabelsFor,
+  makeFieldLabelsNoPrefix,
+  makeFieldLabelsWith,
+ )
 import Relude
 import System.INotify (Event, INotify, WatchDescriptor)
 import System.OsPath.Posix (PosixPath)
@@ -77,25 +84,36 @@ data WhichDir
   = Current
   | Parent
   | Child
+  deriving (Show, Eq)
 
 data LcnsEvent
   = DirEvent WhichDir Event
 
-newtype DirWatcher (dir :: WhichDir)
-  = DirWatcher (Maybe WatchDescriptor)
+data DirWatcher = DirWatcher
+  { dir :: WhichDir
+  , watcher :: Maybe WatchDescriptor
+  }
+
+makeFieldLabelsWith (fieldLabelsRulesFor [("dir", "dir")] & generateUpdateableOptics .~ False) ''DirWatcher
+makeFieldLabelsWith (fieldLabelsRulesFor [("watcher", "watcher")]) ''DirWatcher
 
 data INotifyState = INotifyState
   { channel :: BChan LcnsEvent
   , inotify :: INotify
-  , dirWatcher :: DirWatcher 'Current
-  , parentWatcher :: DirWatcher 'Parent
-  , childWatcher :: DirWatcher 'Child
+  , parentWatcher :: DirWatcher
+  , dirWatcher :: DirWatcher
+  , childWatcher :: DirWatcher
   }
 
 makeFieldLabelsNoPrefix ''INotifyState
+makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatcher", "all")] ''INotifyState
+
+-- #all is not the best name, but it will do for now
 
 data AppState = AppState
   { files :: FileSeq
+  , parentFiles :: FileSeq
+  , childFiles :: FileSeq
   , dir :: Path Abs
   , sortFunction :: SortFunction
   , showDotfiles :: Bool

@@ -18,6 +18,7 @@ module Lcns.Path (
   setCurrentDirectory,
   doesDirectoryExist,
   executeFile,
+  listDirectoryAbs,
 ) where
 
 import Lcns.Prelude
@@ -92,6 +93,9 @@ makeAbsolute path
 
 listDirectory :: MonadIO m => Path any -> m [Path Rel]
 listDirectory path = map mkRel <$> io (D.listDirectory $ toOS path)
+
+listDirectoryAbs :: MonadIO m => Path a -> m [Path a]
+listDirectoryAbs path = map (path </>) <$> listDirectory path
 
 -- * Posix wrappers
 
