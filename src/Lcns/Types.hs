@@ -44,7 +44,8 @@ data Relativity
   | Abs
   | Unknown
 
--- invariant: Path should never contain a trailing slash
+-- invariant: Path _   never contains a trailing slash
+-- invariant: Path Abs is never empty
 newtype Path (rel :: Relativity) = Path PosixPath
   deriving (Eq, Ord, Hashable, Show)
 

@@ -4,8 +4,6 @@ module Lcns.Path (
   takeFileName,
   takeDirectory,
   getCurrentDirectory,
-  getParentDirectory,
-  makeAbsolute,
   (</>),
   listDirectory,
   getFileStatus,
@@ -19,6 +17,8 @@ module Lcns.Path (
   doesDirectoryExist,
   executeFile,
   listDirectoryAbs,
+  combineWithDots,
+  takeParent,
 ) where
 
 import Lcns.Prelude
@@ -80,16 +80,11 @@ getCurrentDirectory = mkAbs <$> io D.getCurrentDirectory
 setCurrentDirectory :: MonadIO m => Path any -> m ()
 setCurrentDirectory = wrapIO D.setCurrentDirectory
 
-doesDirectoryExist :: MonadIO m => Path any -> m Bool
+doesDirectoryExist :: MonadIO m => Path Abs -> m Bool
 doesDirectoryExist = wrapIO D.doesDirectoryExist
 
 removeFile :: MonadIO m => Path any -> m ()
 removeFile = wrapIO D.removeFile
-
-makeAbsolute :: MonadIO m => Path any -> m (Path Abs)
-makeAbsolute path
-  | toSBS path == ".." = getParentDirectory
-  | otherwise = io $ mkAbs <$> io (D.makeAbsolute $ toOS path)
 
 listDirectory :: MonadIO m => Path any -> m [Path Rel]
 listDirectory path = map mkRel <$> io (D.listDirectory $ toOS path)
@@ -114,16 +109,13 @@ executeFile (Path path) usePATH args env =
 
 -- * Misc
 
-getParentDirectory :: MonadIO m => m (Path Abs)
-getParentDirectory = takeDirectory <$> getCurrentDirectory
-
 fromAbs :: Path Abs -> ByteString
 fromAbs = toSBS .> fromShort
 
 fromRel :: Path Rel -> ByteString
 fromRel = toSBS .> fromShort
 
-fromRaw :: RawFilePath -> Path any
+fromRaw :: RawFilePath -> Path Unknown
 fromRaw = toShort .> coerce
 
 decode :: Path any -> Text
@@ -135,3 +127,17 @@ withPath onAbs onRel path'
   | otherwise = onRel $ mkRel path
  where
   path = toOS path'
+
+{- | Combine two paths. If the second path is "..", normalise it
+(once again, I couldn't come up with a decent name)
+-}
+combineWithDots :: Path a -> Path Rel -> Maybe (Path a)
+combineWithDots base rel
+  | toSBS rel == ".." = takeParent base
+  | otherwise = Just $ base </> rel
+
+takeParent :: Path a -> Maybe (Path a)
+takeParent path
+  | toSBS path == "" = Nothing
+  | toSBS path == "/" = Nothing
+  | otherwise = Just $ takeDirectory path

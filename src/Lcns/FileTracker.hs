@@ -25,21 +25,18 @@ trackedEvents =
 -- at some point I should figure out linear types & linear optics, then use them here
 -- but for now it is just an invariant:
 -- `DirWatcher`s should only be interacted with by `watchDir`/ killWatcher
-watchDir :: DirWatcher -> INotify -> Path Abs -> BChan LcnsEvent -> IO DirWatcher
+watchDir :: MonadIO m => DirWatcher -> INotify -> Path Abs -> BChan LcnsEvent -> m DirWatcher
 watchDir w inotify path channel = do
-  print $ w ^. #dir
-  print path
-  _ <- killWatcher w
-  newWatch <- addWatch inotify trackedEvents (fromAbs path) sendEvent
-  pure $ w & #watcher ?~ newWatch
+  newWatch <- io $ addWatch inotify trackedEvents (fromAbs path) sendEvent
+  killWatcher w <&> #watcher ?~ newWatch
  where
   sendEvent Ignored = pass
   sendEvent event =
     writeBChan channel $ DirEvent (w ^. #dir) event
 
-killWatcher :: DirWatcher -> IO DirWatcher
+killWatcher :: MonadIO m => DirWatcher -> m DirWatcher
 killWatcher w = do
-  w ^. #watcher & onJust removeWatch
+  io $ w ^. #watcher & onJust removeWatch
   pure $ w & #watcher .~ Nothing
 
 mainWithFileTracker :: Ord n => BChan e -> App s e n -> s -> IO s

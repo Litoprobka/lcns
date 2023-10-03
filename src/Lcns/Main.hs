@@ -4,13 +4,13 @@ module Lcns.Main (lcns) where
 
 import Brick hiding (Down, on)
 import Brick.BChan (BChan, newBChan)
-import Brick.Widgets.List (list, renderList)
+import Brick.Widgets.List (renderList)
 import Data.HashMap.Strict qualified as Map
-import Data.Sequence qualified as Seq
 import Graphics.Vty.Attributes
 import Lcns.Config
 import Lcns.EventHandling
 import Lcns.FileTracker
+import Lcns.ListUtils qualified as LU
 import Lcns.Path
 import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
@@ -22,8 +22,8 @@ lcns _ = do
   channel <- newBChan 8 -- in theory, 3 should work
   void $
     withINotify $
-      mainWithFileTracker channel app
-        <=< buildInitialState channel
+      buildInitialState channel
+        >=> mainWithFileTracker channel app
 
 buildInitialState :: BChan LcnsEvent -> INotify -> IO AppState
 buildInitialState channel inotify = do
@@ -35,12 +35,14 @@ buildInitialState channel inotify = do
           , dirWatcher = DirWatcher{dir = Current, watcher = Nothing}
           , childWatcher = DirWatcher{dir = Child, watcher = Nothing}
           }
+  dir <- getCurrentDirectory
   refreshState
+    dir
     AppState
-      { files = list "files" Seq.empty 0
-      , parentFiles = list "parent files" Seq.empty 0
-      , childFiles = list "child files" Seq.empty 0
-      , dir = Path mempty
+      { files = LU.empty "files"
+      , parentFiles = LU.empty "parent files"
+      , childFiles = LU.empty "child files"
+      , dir
       , sortFunction = SF{reversed = False, func = Nothing}
       , showDotfiles = True
       , watchers
@@ -50,11 +52,14 @@ buildInitialState channel inotify = do
 preview :: Widget ResourceName
 preview = padAll 1 $ txt "preview" <=> txt "placeholder"
 
+spacer :: Widget ResourceName
+spacer = txt "\8203" -- it's a kind of magic...
+
 drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s =
   one $
     topPanel
-      <=> hBox [renderDir False s.parentFiles, renderDir True s.files, preview]
+      <=> hBox [renderDir False s.parentFiles, spacer, renderDir True s.files, spacer, preview]
       <=> bottomPanel
  where
   topPanel = txt (decode s.dir) <+> fillLine

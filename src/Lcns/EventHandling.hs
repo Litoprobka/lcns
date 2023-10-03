@@ -12,7 +12,8 @@ import Brick
 import Brick.Widgets.List (
   list,
   listElementsL,
-  listMoveBy,
+  listMoveDown,
+  listMoveUp,
   listSelectedElement,
   listSelectedL,
  )
@@ -21,19 +22,15 @@ import Graphics.Vty.Input.Events
 import Lcns.Path
 import System.INotify qualified as IN (Event (..))
 
-log :: (MonadIO m, Show a) => String -> a -> m ()
-log comment msg = io $ appendFile "/home/litoprobka/code/lcns/log" $ comment ++ ": " ++ show msg ++ "\n"
-
 handleVtyEvent :: Event -> EventM n AppState ()
 handleVtyEvent event = case event of
   EvKey (KChar 'q') [MCtrl] -> halt
-  EvKey KUp [] -> updFiles $ listMoveBy (-1)
-  EvKey KDown [] -> updFiles $ listMoveBy 1
+  EvKey KUp [] -> updFiles listMoveUp
+  EvKey KDown [] -> updFiles listMoveDown
   EvKey KRight [] -> do
-    log "open" =<< selected
     onJust openFile =<< selected
-  EvKey KLeft [] -> openFile $ fromRaw ".."
-  EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> refresh
+  EvKey KLeft [] -> openFile $ takeFileName $ fromRaw ".."
+  EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> updAndRefresh id
   EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ #sortFunction %~ invertSort
   EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ #showDotfiles %~ not
   _ -> pass
@@ -56,23 +53,25 @@ handleAppEvent (DirEvent dir event) = case event of
 
   getParent = case dir of
     Current -> pure Nothing
-    Parent -> Just <$> getParentDirectory
-    Child -> traverse makeAbsolute =<< selected
+    Parent -> Just <. takeDirectory <$> use #dir
+    Child -> do
+      dir' <- use #dir
+      (dir' </>) <<$>> selected
 
   act f path =
     getParent >>= \case
       Just parent -> do
-        fileInfo <- io $ getFileInfo $ parent </> fromRaw path
-        sortf <- gets (.sortFunction)
+        fileInfo <- io $ getFileInfo $ parent </> takeFileName (fromRaw path)
+        sortf <- use #sortFunction
         files %= f sortf fileInfo
       Nothing -> do
         files % lensVL listElementsL .= Seq.empty
         files % lensVL listSelectedL .= Nothing
-  -- I'm not sure how GenericList behaves when `listeSelected` is Just <out of bounds>
+  -- I'm not sure how GenericList behaves when `listeSelected` is `Just <out of bounds>`
 
   evUpdate = act LU.update
   evCreate = act LU.insert
-  evDelete = updFiles <. LU.delete <. fromRaw
+  evDelete = updFiles <. LU.delete <. takeFileName <. fromRaw
 
 handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()
 handleEvent event = case event of
@@ -95,76 +94,70 @@ selected = preuse selection
 updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
 updAndRefresh f = do
   s <- get
-  put =<< io (refreshState $ f s)
-  s ^? selection & onJust (modifying #files <. LU.select)
-  #parentFiles %= LU.select (takeFileName s.dir) -- we know that dir doesn't contain a trailing /
-
-refresh :: EventM n AppState ()
-refresh = updAndRefresh id
+  put =<< io (refreshState s.dir $ f s)
 
 updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
 updFiles f = #files %= f
 
 openFile :: Path Rel -> EventM n AppState ()
-openFile file@(Path name) = do
-  ifM
-    (doesDirectoryExist file)
-    ( do
-        curDir <- getCurrentDirectory
-        parentDir <- getParentDirectory
-        curFile <- selected
-        absFile <- makeAbsolute file
-
-        #selections % at curDir .= curFile
-        #selections % at parentDir ?= takeFileName curDir -- curDir doesn't contain a trailing slash
-        setCurrentDirectory file
-        refresh
-
-        preuse (#selections % ix absFile)
-        >>= onJust (LU.select .> modifying #files)
-    )
-    (executeFile (fromRaw "xdg-open") True [name] Nothing)
-
-refreshState :: AppState -> IO AppState
-refreshState appState =
+openFile file@(Path name) =
   do
-    log "refreshing with" appState.dir
-    log "parent" =<< getDir Parent
-    log "current" =<< getDir Current
-    log "child" =<< getDir Child
-    dir <- getCurrentDirectory
-    parent <- getParentDirectory
+    curDir <- use #dir
+    -- if `curDir` is "/", `parentDir` will be gibberish
+    -- it is not a problem if we modify #selections in this order (the incorrect path gets overriden), but it's kinda whacky
+    let parentDir = takeDirectory curDir
+    curDir `combineWithDots` file
+      & onJust (openFileUnnested curDir parentDir)
+ where
+  openFileUnnested dir parent absFile =
+    ifM
+      (doesDirectoryExist absFile)
+      ( do
+          curFile <- selected
+          #selections % at parent ?= takeFileName dir
+          #selections % at dir .= curFile
+          put =<< refreshState absFile =<< get
 
+          preuse (#selections % ix absFile)
+          >>= onJust (LU.select .> modifying #files)
+      )
+      (executeFile (fromRaw "xdg-open") True [name] Nothing)
+
+refreshState :: MonadIO m => Path Abs -> AppState -> m AppState
+refreshState dir appState =
+  do
     files <- refreshFiles "current files" dir
-    parentFiles <- refreshFiles "parent files" parent
+    parentFiles <- case takeParent dir of
+      Just parent -> refreshFiles "parent files" parent
+      Nothing -> pure $ LU.empty "parent files"
 
     appState{dir, files, parentFiles}
-      & traverseOf (#watchers % #all) refreshWatch
+      & #files %~ LU.selectMaybe (appState ^. #selections % at dir)
+      & #parentFiles %~ LU.select (takeFileName dir)
+      & traverseOf (#watchers % #all) killWatcher
+      >>= traverseOf (#watchers % #all) refreshWatch
  where
-  refreshWatch :: DirWatcher -> IO DirWatcher
-  refreshWatch dw =
-    getDir (dw ^. #dir)
-      >>= \case
-        Nothing -> killWatcher dw
-        Just dir ->
-          watchDir
-            dw
-            appState.watchers.inotify
-            dir
-            appState.watchers.channel
+  refreshWatch :: MonadIO m => DirWatcher -> m DirWatcher
+  refreshWatch dw = do
+    case getDir dw.dir of
+      Nothing -> killWatcher dw
+      Just dir' ->
+        watchDir
+          dw
+          appState.watchers.inotify
+          dir'
+          appState.watchers.channel
 
-  getDir :: WhichDir -> IO (Maybe (Path Abs))
-  getDir Parent = Just <$> getParentDirectory
-  getDir Current = Just <$> getCurrentDirectory
+  getDir :: WhichDir -> Maybe (Path Abs)
+  getDir Parent = takeParent dir
+  getDir Current = Just dir
   getDir Child = do
-    dir <- getCurrentDirectory
     (appState ^? #selections % ix dir)
       <&> (dir </>)
-      & pure
 
-  refreshFiles :: Text -> Path Abs -> IO FileSeq
-  refreshFiles listName dir = do
-    dirFiles <- mapM getFileInfo =<< listDirectoryAbs dir
+  refreshFiles :: MonadIO m => Text -> Path Abs -> m FileSeq
+  refreshFiles listName dir' = do
+    dirFiles <- mapM (io <. getFileInfo) =<< listDirectoryAbs dir'
     pure $ list listName (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
 
   sortDir = sortBy $ cmpWith appState.sortFunction
