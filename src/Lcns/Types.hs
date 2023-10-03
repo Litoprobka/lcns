@@ -16,7 +16,9 @@ module Lcns.Types (
   SortFunction (..),
   INotifyState (..),
   AppState (..),
+  WhichDir (..),
   LcnsEvent (..),
+  DirWatcher (..),
 )
 where
 
@@ -71,16 +73,23 @@ data SortFunction = SF
 
 makeFieldLabelsNoPrefix ''SortFunction
 
-newtype LcnsEvent
-  = DirEvent Event
+data WhichDir
+  = Current
+  | Parent
+  | Child
+
+data LcnsEvent
+  = DirEvent WhichDir Event
+
+newtype DirWatcher (dir :: WhichDir)
+  = DirWatcher (Maybe WatchDescriptor)
 
 data INotifyState = INotifyState
   { channel :: BChan LcnsEvent
   , inotify :: INotify
-  , -- maybe descriptors are stil kinda meh
-    dirWatcher :: Maybe WatchDescriptor
-  , parentWatcher :: Maybe WatchDescriptor
-  , childWatcher :: Maybe WatchDescriptor
+  , dirWatcher :: DirWatcher 'Current
+  , parentWatcher :: DirWatcher 'Parent
+  , childWatcher :: DirWatcher 'Child
   }
 
 makeFieldLabelsNoPrefix ''INotifyState

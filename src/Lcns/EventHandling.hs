@@ -31,7 +31,7 @@ handleVtyEvent event = case event of
   _ -> pass
 
 handleAppEvent :: LcnsEvent -> EventM n AppState ()
-handleAppEvent (DirEvent event) = case event of
+handleAppEvent (DirEvent dir event) = case event of
   IN.Attributes _ Nothing -> pass
   IN.Attributes _ (Just path) -> evUpdate path
   IN.Created _ path -> evCreate path
@@ -40,10 +40,23 @@ handleAppEvent (DirEvent event) = case event of
   IN.MovedOut _ path _ -> evDelete path
   _ -> pass -- for Ignored and the like
  where
+  files :: Lens' AppState FileSeq
+  files = case dir of
+    Current -> #files
+    Parent -> #parentFiles
+    Child -> #childFiles
+
+  getParent = case dir of
+    Current -> pure ""
+    Parent -> io getParentDir
+    Child -> selected <&> fromMaybe ""
+
   act f path = do
-    fi <- io $ getFileInfo $ fromRaw path
+    parent <- getParent
+    fi <- io $ getFileInfo $ parent </> $ fromRaw path
     sortf <- gets (.sortFunction)
-    #files %= f sortf fi
+    files %= f sortf fi
+
   evUpdate = act LU.update
   evCreate = act LU.insert
   evDelete = updFiles <. LU.delete <. fromRaw
@@ -55,19 +68,23 @@ handleEvent event = case event of
   MouseDown{} -> pass
   MouseUp{} -> pass
 
-selected :: EventM n AppState (Maybe (Path Rel))
-selected =
-  preuse $
-    #files
-      % to listSelectedElement
-      % _Just
-      % _2
-      % #name
+selection :: AffineFold AppState RawFilePath
+selection =
+  #files
+    % to listSelectedElement
+    % _Just
+    % _2
+    % #name
+
+selected :: EventM n AppState (Maybe RawFilePath)
+selected = preuse selection
 
 updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
 updAndRefresh f = do
   s <- get
   put =<< io (refreshState $ f s)
+  s ^? selection & onJust (modifying #files <. LU.select)
+  #parentFiles %= LU.select (takeFileName s.dir) -- we know that dir doesn't contain a trailing /
 
 refresh :: EventM n AppState ()
 refresh = updAndRefresh id
@@ -81,23 +98,17 @@ openFile file@(Path name) = do
     (doesDirectoryExist file)
     ( do
         curDir <- getCurrentDirectory
+        parentDir <- io getParentDir
         curFile <- selected
         absFile <- makeAbsolute file
 
         #selections % at curDir .= curFile
+        #selections % at parentDir ?= takeFileName curDir -- curDir doesn't contain a trailing slash
         setCurrentDirectory file
         refresh
 
-        when
-          (fromRel file == "..")
-          ( #selections
-              % at absFile
-              %= Just
-                <. fromMaybe (takeFileName curDir)
-          )
-
         preuse (#selections % ix absFile)
-          >>= onJust (LU.select .> modifying #files)
+        >>= onJust (LU.select .> modifying #files)
     )
     (executeFile (fromRaw "xdg-open") True [name] Nothing)
 
@@ -105,27 +116,38 @@ refreshState :: AppState -> IO AppState
 refreshState appState =
   do
     dir <- getCurrentDirectory
+    parent <- getParentDir
 
-    dirWatcher <-
-      Just -- mess
-        <$> watchDir
-          appState.watchers.dirWatcher
-          appState.watchers.inotify
-          dir
-          appState.watchers.channel
+    curWatcher <- refreshWatch dir #dirWatcher
+    parentWatcher <- refreshWatch parent #parentWatcher
 
-    dirFiles <- mapM (getFileInfo <=< makeAbsolute) =<< listDirectory dir
-    let files = list "dir" (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
+    files <- refreshFiles "current files" dir
+    parentFiles <- refreshFiles "parent files" parent
 
     pure $
-      appState{dir, files}
-        & #watchers % #dirWatcher .~ dirWatcher
+      appState{dir, files, parentFiles}
+        & #watchers % #dirWatcher .~ curWatcher
+        & #watchers % #parentWatcher .~ parentWatcher
  where
+  refreshWatch :: DemoteDir dir => RawFilePath -> Lens' INotifyState (DirWatcher dir) -> IO (DirWatcher dir)
+  refreshWatch dir optic = do
+    watchDir
+      (appState ^. #watchers % optic)
+      appState.watchers.inotify
+      dir
+      appState.watchers.channel
+
+  refreshFiles :: Text -> RawFilePath -> IO FileSeq
+  refreshFiles listName dir = do
+    dirFiles <- mapM ((getFileInfo <. (dir </>)) <=< makeAbsolute) =<< listDirectory dir
+    pure $ list listName (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
+
   sortDir = sortBy $ cmpWith appState.sortFunction
 
   filterHidden
     | appState.showDotfiles = id
     | otherwise = filter (not . isDotfile)
+
 
   isDotfile :: FileInfo -> Bool
   isDotfile f = f.name ^? to fromRel % _head == Just (toEnum $ fromEnum '.')
