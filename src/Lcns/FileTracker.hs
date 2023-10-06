@@ -4,6 +4,7 @@ import Lcns.Prelude
 
 import Brick (App, customMain)
 import Brick.BChan (BChan, writeBChan)
+import Control.Exception (try)
 import Graphics.Vty (defaultConfig, mkVty)
 import Lcns.Path (fromAbs)
 import System.INotify (
@@ -27,16 +28,20 @@ trackedEvents =
 -- `DirWatcher`s should only be interacted with by `watchDir`/ killWatcher
 watchDir :: MonadIO m => DirWatcher -> INotify -> Path Abs -> BChan LcnsEvent -> m DirWatcher
 watchDir w inotify path channel = do
-  newWatch <- io $ addWatch inotify trackedEvents (fromAbs path) sendEvent
-  killWatcher w <&> #watcher ?~ newWatch
+  newWatch <-
+    io $
+      try @SomeException (addWatch inotify trackedEvents (fromAbs path) sendEvent)
+        <&> either (const Nothing) Just
+
+  killWatcher w <&> #watcher .~ newWatch
  where
   sendEvent Ignored = pass
   sendEvent event =
-    writeBChan channel $ DirEvent (w ^. #dir) event
+    writeBChan channel $ DirEvent w.dir event
 
 killWatcher :: MonadIO m => DirWatcher -> m DirWatcher
 killWatcher w = do
-  io $ w ^. #watcher & onJust removeWatch
+  io $ w.watcher & onJust removeWatch
   pure $ w & #watcher .~ Nothing
 
 mainWithFileTracker :: Ord n => BChan e -> App s e n -> s -> IO s

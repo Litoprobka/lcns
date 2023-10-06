@@ -19,6 +19,7 @@ module Lcns.Path (
   listDirectoryAbs,
   combineWithDots,
   takeParent,
+  tryListDirectory,
 ) where
 
 import Lcns.Prelude
@@ -30,6 +31,8 @@ import System.OsPath qualified as OP
 import System.Posix.PosixString qualified as PS
 
 -- convincing `coerce` to work
+
+import Control.Exception (try)
 import System.OsString.Internal.Types (OsString (..), PosixString (..))
 import System.Posix.ByteString (RawFilePath)
 
@@ -141,3 +144,7 @@ takeParent path
   | toSBS path == "" = Nothing
   | toSBS path == "/" = Nothing
   | otherwise = Just $ takeDirectory path
+
+tryListDirectory :: MonadIO m => Path a -> m [Path a]
+tryListDirectory path = do
+  io (try @SomeException (listDirectoryAbs path)) <&> fromRight []

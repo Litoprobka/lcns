@@ -19,6 +19,7 @@ module Lcns.Types (
   WhichDir (..),
   LcnsEvent (..),
   DirWatcher (..),
+  DirFiles (..),
 )
 where
 
@@ -111,10 +112,18 @@ makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatc
 
 -- #all is not the best name, but it will do for now
 
+data DirFiles = DirFiles
+  { dir :: WhichDir
+  , name :: ResourceName
+  , list :: FileSeq
+  }
+makeFieldLabelsWith (fieldLabelsRulesFor [("dir", "dir"), ("name", "name")] & generateUpdateableOptics .~ False) ''DirFiles
+makeFieldLabelsWith (fieldLabelsRulesFor [("list", "list")]) ''DirFiles
+
 data AppState = AppState
-  { files :: FileSeq
-  , parentFiles :: FileSeq
-  , childFiles :: FileSeq
+  { files :: DirFiles
+  , parentFiles :: DirFiles
+  , childFiles :: DirFiles
   , dir :: Path Abs
   , sortFunction :: SortFunction
   , showDotfiles :: Bool
@@ -123,3 +132,4 @@ data AppState = AppState
   }
 
 makeFieldLabelsNoPrefix ''AppState
+makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childFiles", "allFiles")] ''AppState

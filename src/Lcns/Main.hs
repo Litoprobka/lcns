@@ -36,21 +36,24 @@ buildInitialState channel inotify = do
           , childWatcher = DirWatcher{dir = Child, watcher = Nothing}
           }
   dir <- getCurrentDirectory
-  refreshState
-    dir
-    AppState
-      { files = LU.empty "files"
-      , parentFiles = LU.empty "parent files"
-      , childFiles = LU.empty "child files"
-      , dir
-      , sortFunction = SF{reversed = False, func = Nothing}
-      , showDotfiles = True
-      , watchers
-      , selections = Map.empty
-      }
+  refreshState dir
+    =<< refreshState
+      dir
+      AppState
+        { files = DirFiles{dir = Current, name = "files", list = LU.empty "files"}
+        , parentFiles = DirFiles{dir = Parent, name = "parent files", list = LU.empty "parent files"}
+        , childFiles = DirFiles{dir = Child, name = "child files", list = LU.empty "child files"}
+        , dir
+        , sortFunction = SF{reversed = False, func = Nothing}
+        , showDotfiles = True
+        , watchers
+        , selections = Map.empty
+        }
 
-preview :: Widget ResourceName
-preview = padAll 1 $ txt "preview" <=> txt "placeholder"
+preview :: DirWatcher -> FileSeq -> Widget ResourceName
+preview w childFiles = case w.watcher of
+  Just _ -> renderDir False childFiles
+  Nothing -> padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName
 spacer = txt "\8203" -- it's a kind of magic...
@@ -59,7 +62,13 @@ drawTUI :: AppState -> [Widget ResourceName]
 drawTUI s =
   one $
     topPanel
-      <=> hBox [renderDir False s.parentFiles, spacer, renderDir True s.files, spacer, preview]
+      <=> hBox
+        [ renderDir False s.parentFiles.list
+        , spacer
+        , renderDir True s.files.list
+        , spacer
+        , preview s.watchers.childWatcher s.childFiles.list
+        ]
       <=> bottomPanel
  where
   topPanel = txt (decode s.dir) <+> fillLine

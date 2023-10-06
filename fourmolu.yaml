@@ -45,12 +45,11 @@ respectful: true
 
 # Fixity information for operators
 fixities:
-- infixl 9 %
-- infixr 4 .~, %~, ?~, !~, %!~, ?!~
-- infix  4 .=, ?=, %=, %%=, <.=, <?=, <%=, <<.=, <<?=, <<%=
-- infixr 0 $
-- infixl 1 &
+  - infixl 9 %
+  - infixr 4 .~, %~, ?~, !~, %!~, ?!~
+  - infix  4 .=, ?=, %=, %%=, <.=, <?=, <%=, <<.=, <<?=, <<%=
+  - infixr 0 $
+  - infixl 1 &, <&>
 
 # Module reexports Fourmolu should know about
 reexports: []
-

@@ -11,6 +11,7 @@ import Lcns.Sort
 import Brick
 import Brick.Widgets.List (
   list,
+  listClear,
   listElementsL,
   listMoveDown,
   listMoveUp,
@@ -25,8 +26,8 @@ import System.INotify qualified as IN (Event (..))
 handleVtyEvent :: Event -> EventM n AppState ()
 handleVtyEvent event = case event of
   EvKey (KChar 'q') [MCtrl] -> halt
-  EvKey KUp [] -> updFiles listMoveUp
-  EvKey KDown [] -> updFiles listMoveDown
+  EvKey KUp [] -> updFiles listMoveUp >> updateChildDir -- temporary solution, should be replaced by incremental updates
+  EvKey KDown [] -> updFiles listMoveDown >> updateChildDir
   EvKey KRight [] -> do
     onJust openFile =<< selected
   EvKey KLeft [] -> openFile $ takeFileName $ fromRaw ".."
@@ -46,7 +47,7 @@ handleAppEvent (DirEvent dir event) = case event of
   _ -> pass -- for Ignored and the like
  where
   files :: Lens' AppState FileSeq
-  files = case dir of
+  files = (% #list) $ case dir of
     Current -> #files
     Parent -> #parentFiles
     Child -> #childFiles
@@ -83,6 +84,7 @@ handleEvent event = case event of
 selection :: AffineFold AppState (Path Rel)
 selection =
   #files
+    % #list
     % to listSelectedElement
     % _Just
     % _2
@@ -94,10 +96,15 @@ selected = preuse selection
 updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
 updAndRefresh f = do
   s <- get
-  put =<< io (refreshState s.dir $ f s)
+  (#selections % at s.dir .=) =<< selected
+  put =<< refreshState s.dir (f s)
+  #files % #list %= LU.selectMaybe (s ^? selection) -- temporary
+
+updateChildDir :: EventM n AppState ()
+updateChildDir = updAndRefresh id
 
 updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
-updFiles f = #files %= f
+updFiles f = #files % #list %= f
 
 openFile :: Path Rel -> EventM n AppState ()
 openFile file@(Path name) =
@@ -119,47 +126,34 @@ openFile file@(Path name) =
           put =<< refreshState absFile =<< get
 
           preuse (#selections % ix absFile)
-          >>= onJust (LU.select .> modifying #files)
+          >>= onJust (LU.select .> modifying (#files % #list))
       )
       (executeFile (fromRaw "xdg-open") True [name] Nothing)
 
 refreshState :: MonadIO m => Path Abs -> AppState -> m AppState
 refreshState dir appState =
   do
-    files <- refreshFiles "current files" dir
-    parentFiles <- case takeParent dir of
-      Just parent -> refreshFiles "parent files" parent
-      Nothing -> pure $ LU.empty "parent files"
-
-    appState{dir, files, parentFiles}
-      & #files %~ LU.selectMaybe (appState ^. #selections % at dir)
-      & #parentFiles %~ LU.select (takeFileName dir)
-      & traverseOf (#watchers % #all) killWatcher
-      >>= traverseOf (#watchers % #all) refreshWatch
+    withNewDir
+    & traverseOf #allFiles (refreshFiles withNewDir)
+    >>= traverseOf (#watchers % #all) killWatcher
+    >>= traverseOf (#watchers % #all) (refreshWatch withNewDir)
  where
-  refreshWatch :: MonadIO m => DirWatcher -> m DirWatcher
-  refreshWatch dw = do
-    case getDir dw.dir of
-      Nothing -> killWatcher dw
-      Just dir' ->
-        watchDir
-          dw
-          appState.watchers.inotify
-          dir'
-          appState.watchers.channel
+  withNewDir =
+    appState
+      & #dir .~ dir
+      & #selections % at appState.dir .~ appState ^? selection
 
-  getDir :: WhichDir -> Maybe (Path Abs)
-  getDir Parent = takeParent dir
-  getDir Current = Just dir
-  getDir Child = do
-    (appState ^? #selections % ix dir)
-      <&> (dir </>)
-
-  refreshFiles :: MonadIO m => Text -> Path Abs -> m FileSeq
-  refreshFiles listName dir' = do
-    dirFiles <- mapM (io <. getFileInfo) =<< listDirectoryAbs dir'
-    pure $ list listName (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
-
+refreshFiles :: MonadIO m => AppState -> DirFiles -> m DirFiles
+refreshFiles appState files = do
+  getDir appState files.dir >>= \case
+    Nothing -> pure $ files & #list %~ listClear
+    Just dir -> do
+      dirFiles <- mapM (io <. getFileInfo) =<< tryListDirectory dir
+      pure $
+        files
+          & #list .~ list files.name (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
+          & #list %~ LU.selectMaybe (appState ^? #selections % ix dir)
+ where
   sortDir = sortBy $ cmpWith appState.sortFunction
 
   filterHidden
@@ -168,3 +162,31 @@ refreshState dir appState =
 
   isDotfile :: FileInfo -> Bool
   isDotfile f = f.name ^? to fromRel % _head == Just (toEnum $ fromEnum '.')
+
+childDir :: MonadIO m => AppState -> m (Maybe (Path Abs))
+childDir appState =
+  traverse doesDirectoryExist childDirPath <&> \case
+    Just True -> childDirPath
+    _ -> Nothing
+ where
+  childDirPath =
+    (appState ^? #selections % ix appState.dir)
+      <|> (appState ^? selection)
+      <&> (appState.dir </>)
+
+getDir :: MonadIO m => AppState -> WhichDir -> m (Maybe (Path Abs))
+getDir appState = \case
+  Parent -> pure $ takeParent appState.dir
+  Current -> pure $ Just appState.dir
+  Child -> childDir appState
+
+refreshWatch :: MonadIO m => AppState -> DirWatcher -> m DirWatcher
+refreshWatch appState dw =
+  getDir appState dw.dir >>= \case
+    Nothing -> killWatcher dw
+    Just dir' ->
+      watchDir
+        dw
+        appState.watchers.inotify
+        dir'
+        appState.watchers.channel
