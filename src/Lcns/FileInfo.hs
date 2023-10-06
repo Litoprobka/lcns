@@ -26,12 +26,13 @@ getTypedInfo status path' = do
     | otherwise -> pure (File FileData, status)
  where
   getSymlinkInfo = do
+    -- "/" is never a symlink, so `takeDirectory` should be fine here
     linkedPath <- withPath id (takeDirectory path' </>) <$> readSymbolicLink path'
     try @SomeException (getFileStatus linkedPath)
       >>= mapM (`getTypedInfo` linkedPath)
-        <&> \case
-          Left _ -> (Link Nothing, status)
-          Right fileInfo -> first (Link . Just) fileInfo
+      <&> \case
+        Left _ -> (Link Nothing, status)
+        Right fileInfo -> first (Link . Just) fileInfo
 
   getDirInfo = do
     itemCount <-

@@ -12,11 +12,9 @@ import Brick
 import Brick.Widgets.List (
   list,
   listClear,
-  listElementsL,
   listMoveDown,
   listMoveUp,
   listSelectedElement,
-  listSelectedL,
  )
 import Data.Sequence qualified as Seq
 import Graphics.Vty.Input.Events
@@ -52,27 +50,20 @@ handleAppEvent (DirEvent dir event) = case event of
     Parent -> #parentFiles
     Child -> #childFiles
 
-  getParent = case dir of
-    Current -> pure Nothing
-    Parent -> Just <. takeDirectory <$> use #dir
-    Child -> do
-      dir' <- use #dir
-      (dir' </>) <<$>> selected
+  actOnFile f path parent = do
+    fileInfo <- io $ getFileInfo $ parent </> takeFileName (fromRaw path)
+    sortf <- use #sortFunction
+    files %= f sortf fileInfo
 
-  act f path =
-    getParent >>= \case
-      Just parent -> do
-        fileInfo <- io $ getFileInfo $ parent </> takeFileName (fromRaw path)
-        sortf <- use #sortFunction
-        files %= f sortf fileInfo
-      Nothing -> do
-        files % lensVL listElementsL .= Seq.empty
-        files % lensVL listSelectedL .= Nothing
-  -- I'm not sure how GenericList behaves when `listeSelected` is `Just <out of bounds>`
+  withParent action =
+    get >>= (`getDir` dir) >>= \case
+      Just parent -> action parent
+      Nothing ->
+        files %= listClear
 
-  evUpdate = act LU.update
-  evCreate = act LU.insert
-  evDelete = updFiles <. LU.delete <. takeFileName <. fromRaw
+  evUpdate = withParent <. actOnFile LU.update
+  evCreate = withParent <. actOnFile LU.insert
+  evDelete name = withParent $ const $ files %= LU.delete (takeFileName $ fromRaw name)
 
 handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()
 handleEvent event = case event of

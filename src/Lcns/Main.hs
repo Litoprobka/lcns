@@ -31,24 +31,29 @@ buildInitialState channel inotify = do
         INotifyState
           { inotify
           , channel
-          , parentWatcher = DirWatcher{dir = Parent, watcher = Nothing}
-          , dirWatcher = DirWatcher{dir = Current, watcher = Nothing}
-          , childWatcher = DirWatcher{dir = Child, watcher = Nothing}
+          , parentWatcher = emptyWatcher Parent
+          , dirWatcher = emptyWatcher Current
+          , childWatcher = emptyWatcher Child
           }
   dir <- getCurrentDirectory
   refreshState dir
     =<< refreshState
       dir
       AppState
-        { files = DirFiles{dir = Current, name = "files", list = LU.empty "files"}
-        , parentFiles = DirFiles{dir = Parent, name = "parent files", list = LU.empty "parent files"}
-        , childFiles = DirFiles{dir = Child, name = "child files", list = LU.empty "child files"}
+        { files = emptyFiles Current "files"
+        , parentFiles = emptyFiles Parent "parent files"
+        , childFiles = emptyFiles Child "child files"
         , dir
         , sortFunction = SF{reversed = False, func = Nothing}
         , showDotfiles = True
         , watchers
         , selections = Map.empty
         }
+ where
+  emptyFiles :: WhichDir -> Text -> DirFiles
+  emptyFiles dir name = DirFiles{dir, name, list = LU.empty name}
+
+  emptyWatcher dir = DirWatcher{dir, watcher = Nothing}
 
 preview :: DirWatcher -> FileSeq -> Widget ResourceName
 preview w childFiles = case w.watcher of
