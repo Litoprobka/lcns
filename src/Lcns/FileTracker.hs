@@ -17,8 +17,8 @@ import System.INotify (
 
 trackedEvents :: [EventVariety]
 trackedEvents =
-  [ -- Attrib
-    Move
+  [ Attrib
+  , Move
   , Create
   , Delete
   ]

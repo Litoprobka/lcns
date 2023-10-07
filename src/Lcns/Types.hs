@@ -20,11 +20,15 @@ module Lcns.Types (
   LcnsEvent (..),
   DirWatcher (..),
   DirFiles (..),
+  AppM,
+  Config (..),
 )
 where
 
+import Brick (EventM)
 import Brick.BChan (BChan)
 import Brick.Widgets.List (GenericList)
+import Graphics.Vty.Input (Key, Modifier)
 import Optics.Operators ((.~))
 import Optics.TH (
   fieldLabelsRulesFor,
@@ -67,8 +71,8 @@ data FileType
 
 data FileInfo = FileInfo
   { name :: Path Rel
-  , status :: FileStatus
-  , typedInfo :: FileType -- couldn't come up with a better name
+  , status :: Maybe FileStatus -- I've encountered some cryptic Steam files that don't have a valid file status
+  , typedInfo :: Maybe FileType -- couldn't come up with a better name
   }
 
 makeFieldLabelsNoPrefix ''FileInfo
@@ -133,3 +137,9 @@ data AppState = AppState
 
 makeFieldLabelsNoPrefix ''AppState
 makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childFiles", "allFiles")] ''AppState
+
+type AppM a = EventM ResourceName AppState a
+
+newtype Config = Config
+  { keybindings :: Key -> [Modifier] -> AppM ()
+  }

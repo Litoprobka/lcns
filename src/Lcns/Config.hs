@@ -1,10 +1,31 @@
-module Lcns.Config (Config (..)) where
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE StrictData #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
+module Lcns.Config (Config (..), module Lcns.EventHandling, Key (..), Modifier (..)) where
+
+import Lcns.EventHandling hiding (
+  handleAppEvent,
+  handleEventWith,
+  handleVtyEvent,
+  refreshState,
+ )
+import Lcns.Prelude
+
+import Brick (halt)
 import Data.Default
-
-data Config = Config
-  { placeholder :: ()
-  }
+import Graphics.Vty.Input (Key (..), Modifier (..))
 
 instance Default Config where
-  def = Config ()
+  def = Config{keybindings}
+   where
+    keybindings = \cases
+      (KChar 'q') [MCtrl] -> halt
+      KUp [] -> moveUp
+      KDown [] -> moveDown
+      KRight [] -> open
+      KLeft [] -> moveBack
+      KDel [] -> delete
+      (KChar 'r') [MCtrl] -> invertSort
+      (KChar 'd') [MCtrl] -> toggleDotfiles
+      _ _ -> pass

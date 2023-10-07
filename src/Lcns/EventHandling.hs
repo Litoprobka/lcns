@@ -1,12 +1,24 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Lcns.EventHandling (refreshState, handleVtyEvent, handleAppEvent, handleEvent) where
+module Lcns.EventHandling (
+  refreshState,
+  handleVtyEvent,
+  handleAppEvent,
+  handleEventWith,
+  moveUp,
+  moveDown,
+  open,
+  moveBack,
+  delete,
+  invertSort,
+  toggleDotfiles,
+) where
 
 import Lcns.FileInfo
 import Lcns.FileTracker
 import Lcns.ListUtils qualified as LU
 import Lcns.Prelude
-import Lcns.Sort
+import Lcns.Sort qualified as S
 
 import Brick
 import Brick.Widgets.List (
@@ -20,24 +32,40 @@ import Data.Sequence qualified as Seq
 import Graphics.Vty.Input.Events
 import Lcns.Path
 import System.INotify qualified as IN (Event (..))
+import System.Posix.ByteString (RawFilePath)
 
-handleVtyEvent :: Event -> EventM n AppState ()
-handleVtyEvent event = case event of
-  EvKey (KChar 'q') [MCtrl] -> halt
-  EvKey KUp [] -> updFiles listMoveUp >> updateChildDir -- temporary solution, should be replaced by incremental updates
-  EvKey KDown [] -> updFiles listMoveDown >> updateChildDir
-  EvKey KRight [] -> do
-    onJust openFile =<< selected
-  EvKey KLeft [] -> openFile $ takeFileName $ fromRaw ".."
-  EvKey KDel [] -> selected >>= onJust (io <. removeFile) >> updAndRefresh id
-  EvKey (KChar 'r') [MCtrl] -> updAndRefresh $ #sortFunction %~ invertSort
-  EvKey (KChar 'd') [MCtrl] -> updAndRefresh $ #showDotfiles %~ not
+handleVtyEvent :: Config -> Event -> AppM ()
+handleVtyEvent cfg = \case
+  EvKey key mods -> cfg.keybindings key mods
   _ -> pass
 
-handleAppEvent :: LcnsEvent -> EventM n AppState ()
+moveUp :: AppM ()
+moveUp = updFiles listMoveUp >> updateChildDir
+
+moveDown :: AppM ()
+moveDown = updFiles listMoveDown >> updateChildDir
+
+open :: AppM ()
+open = onJust openFile =<< selected
+
+moveBack :: AppM ()
+moveBack = openFile $ takeFileName $ fromRaw ".."
+
+delete :: AppM ()
+delete = selected >>= onJust (io <. removeFile) >> updAndRefresh id
+
+invertSort :: AppM ()
+invertSort = selected >>= onJust (io <. removeFile) >> updAndRefresh id
+
+toggleDotfiles :: AppM ()
+toggleDotfiles = updAndRefresh $ #showDotfiles %~ not
+
+handleAppEvent :: LcnsEvent -> AppM ()
 handleAppEvent (DirEvent dir event) = case event of
-  IN.Attributes _ Nothing -> pass
+  IN.Accessed _ (Just path) -> evUpdate path
+  IN.Modified _ (Just path) -> evUpdate path
   IN.Attributes _ (Just path) -> evUpdate path
+  IN.Opened _ (Just path) -> evUpdate path
   IN.Created _ path -> evCreate path
   IN.MovedIn _ path _ -> evCreate path
   IN.Deleted _ path -> evDelete path
@@ -50,11 +78,13 @@ handleAppEvent (DirEvent dir event) = case event of
     Parent -> #parentFiles
     Child -> #childFiles
 
+  actOnFile :: (SortFunction -> FileInfo -> FileSeq -> FileSeq) -> RawFilePath -> Path Abs -> AppM ()
   actOnFile f path parent = do
     fileInfo <- io $ getFileInfo $ parent </> takeFileName (fromRaw path)
     sortf <- use #sortFunction
     files %= f sortf fileInfo
 
+  withParent :: (Path Abs -> AppM ()) -> AppM ()
   withParent action =
     get >>= (`getDir` dir) >>= \case
       Just parent -> action parent
@@ -65,9 +95,9 @@ handleAppEvent (DirEvent dir event) = case event of
   evCreate = withParent <. actOnFile LU.insert
   evDelete name = withParent $ const $ files %= LU.delete (takeFileName $ fromRaw name)
 
-handleEvent :: BrickEvent n LcnsEvent -> EventM n AppState ()
-handleEvent event = case event of
-  VtyEvent vtye -> handleVtyEvent vtye
+handleEventWith :: Config -> BrickEvent n LcnsEvent -> AppM ()
+handleEventWith cfg event = case event of
+  VtyEvent vtye -> handleVtyEvent cfg vtye
   AppEvent appEv -> handleAppEvent appEv
   MouseDown{} -> pass
   MouseUp{} -> pass
@@ -81,39 +111,47 @@ selection =
     % _2
     % #name
 
-selected :: EventM n AppState (Maybe (Path Rel))
+selected :: AppM (Maybe (Path Rel))
 selected = preuse selection
 
-updAndRefresh :: (AppState -> AppState) -> EventM n AppState ()
+addListFocusToSelections :: AppState -> AppState
+addListFocusToSelections st =
+  st & #selections % at st.dir .~ st ^? selection
+
+updAndRefresh :: (AppState -> AppState) -> AppM ()
 updAndRefresh f = do
+  modify addListFocusToSelections
   s <- get
-  (#selections % at s.dir .=) =<< selected
   put =<< refreshState s.dir (f s)
   #files % #list %= LU.selectMaybe (s ^? selection) -- temporary
 
-updateChildDir :: EventM n AppState ()
-updateChildDir = updAndRefresh id
+updateChildDir :: AppM ()
+updateChildDir = do
+  modify addListFocusToSelections
+  s <- get
+  s
+    & traverseOf (#watchers % #childWatcher) (refreshWatch s)
+    >>= traverseOf #childFiles (refreshFiles s)
+    >>= put
 
-updFiles :: (FileSeq -> FileSeq) -> EventM n AppState ()
+updFiles :: (FileSeq -> FileSeq) -> AppM ()
 updFiles f = #files % #list %= f
 
-openFile :: Path Rel -> EventM n AppState ()
+openFile :: Path Rel -> AppM ()
 openFile file@(Path name) =
   do
     curDir <- use #dir
-    -- if `curDir` is "/", `parentDir` will be gibberish
-    -- it is not a problem if we modify #selections in this order (the incorrect path gets overriden), but it's kinda whacky
-    let parentDir = takeDirectory curDir
     curDir `combineWithDots` file
-      & onJust (openFileUnnested curDir parentDir)
+      & onJust (openFileUnnested curDir)
  where
-  openFileUnnested dir parent absFile =
+  openFileUnnested dir absFile =
     ifM
       (doesDirectoryExist absFile)
       ( do
-          curFile <- selected
-          #selections % at parent ?= takeFileName dir
-          #selections % at dir .= curFile
+          -- if `dir` is "/", `takeDirectory dir` will be gibberish
+          -- it is not a problem if we modify #selections in this order (the incorrect path gets overriden), but it's kinda whacky
+          #selections % at (takeDirectory dir) ?= takeFileName dir
+          modify addListFocusToSelections
           put =<< refreshState absFile =<< get
 
           preuse (#selections % ix absFile)
@@ -126,13 +164,13 @@ refreshState dir appState =
   do
     withNewDir
     & traverseOf #allFiles (refreshFiles withNewDir)
-    >>= traverseOf (#watchers % #all) killWatcher
-    >>= traverseOf (#watchers % #all) (refreshWatch withNewDir)
+    >>= traverseOf (#watchers % #all) killWatcher -- hinotify (or inotify itself) treats multiple WatchDescriptor-s  on the same directory as one
+    >>= traverseOf (#watchers % #all) (refreshWatch withNewDir) -- so we have to remove all of them before recreating
  where
   withNewDir =
     appState
+      & addListFocusToSelections
       & #dir .~ dir
-      & #selections % at appState.dir .~ appState ^? selection
 
 refreshFiles :: MonadIO m => AppState -> DirFiles -> m DirFiles
 refreshFiles appState files = do
@@ -145,7 +183,7 @@ refreshFiles appState files = do
           & #list .~ list files.name (Seq.fromList $ filterHidden $ sortDir dirFiles) 1
           & #list %~ LU.selectMaybe (appState ^? #selections % ix dir)
  where
-  sortDir = sortBy $ cmpWith appState.sortFunction
+  sortDir = sortBy $ S.cmpWith appState.sortFunction
 
   filterHidden
     | appState.showDotfiles = id

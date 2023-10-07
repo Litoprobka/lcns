@@ -14,6 +14,7 @@ module Lcns.Prelude (
   flipOrder,
   onJust,
   io,
+  eitherToMaybe,
 ) where
 
 import Relude hiding (uncons)
@@ -70,3 +71,6 @@ onJust = flip whenJust
 
 io :: MonadIO m => IO a -> m a
 io = liftIO
+
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe = preview _Right

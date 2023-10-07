@@ -18,12 +18,12 @@ import System.INotify (INotify, withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
 
 lcns :: Config -> IO ()
-lcns _ = do
+lcns cfg = do
   channel <- newBChan 8 -- in theory, 3 should work
   void $
     withINotify $
       buildInitialState channel
-        >=> mainWithFileTracker channel app
+        >=> mainWithFileTracker channel (app cfg)
 
 buildInitialState :: BChan LcnsEvent -> INotify -> IO AppState
 buildInitialState channel inotify = do
@@ -98,27 +98,32 @@ renderFile isSelected file =
     )
     $ line file
 
-fileAttr :: IsString a => FileType -> a
-fileAttr fileType = case fileType of
+fileAttr :: Maybe FileType -> String
+fileAttr Nothing = "file"
+fileAttr (Just fileType) = case fileType of
   Link Nothing -> "invalid-link"
   Link (Just (Dir _)) -> "directory-link"
   Link (Just (File _)) -> "link"
-  Link (Just nestedLink) -> fileAttr nestedLink
+  Link (Just nestedLink) -> fileAttr $ Just nestedLink
   Dir _ -> "directory"
   File _ -> "file"
 
 size :: FileInfo -> String
-size file@FileInfo{typedInfo = File _} =
-  let (COff n) = fileSize file.status
-   in if
-        -- this is ugly
-        | n < 2 ^! 10 -> show n <> " B"
-        | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
-        | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
-        | otherwise -> n `div'` (2 ^! 30) $ " GiB"
-size FileInfo{typedInfo = Dir di} = maybe "?" show di.itemCount
-size file@FileInfo{typedInfo = Link (Just l)} = size file{typedInfo = l}
-size FileInfo{typedInfo = Link Nothing} = "N/A"
+size FileInfo{typedInfo = Nothing} = "?"
+size file@FileInfo{typedInfo = Just typedInfo} = case typedInfo of
+  File _ ->
+    case fileSize <$> file.status of
+      Nothing -> "?"
+      Just (COff n) ->
+        if
+          -- this is ugly
+          | n < 2 ^! 10 -> show n <> " B"
+          | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
+          | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
+          | otherwise -> n `div'` (2 ^! 30) $ " GiB"
+  Dir di -> maybe "?" show di.itemCount
+  Link (Just l) -> size file{typedInfo = Just l}
+  Link Nothing -> "N/A"
 
 infixl 8 ^!
 (^!) :: Num a => a -> Int -> a
@@ -127,12 +132,12 @@ infixl 8 ^!
 div' :: Int64 -> Double -> String -> String
 div' x y = showFFloat (Just 2) (fromIntegral x / y)
 
-app :: App AppState LcnsEvent ResourceName
-app =
+app :: Config -> App AppState LcnsEvent ResourceName
+app cfg =
   App
     { appDraw = drawTUI
     , appChooseCursor = showFirstCursor
-    , appHandleEvent = handleEvent
+    , appHandleEvent = handleEventWith cfg
     , appStartEvent = pass
     , appAttrMap = mkAttrMap
     }

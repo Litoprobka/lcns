@@ -8,18 +8,21 @@ import Lcns.Prelude
 import Control.Exception (try)
 import Lcns.Path
 
+import Data.List.NonEmpty qualified as NE (unzip) -- why the hell is generalised `unzip` exported there?
 import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
 getFileInfo :: Path Abs -> IO FileInfo
 getFileInfo path = do
   let name = takeFileName path
-  status' <- getSymbolicLinkStatus path
-  (typedInfo, status) <- getTypedInfo status' path
+  try @SomeException (getSymbolicLinkStatus path)
+    >>= \case
+      Right status' -> do
+        (typedInfo, status) <- NE.unzip <$> getTypedInfo status' path
+        pure FileInfo{..}
+      Left _ -> pure FileInfo{name, status = Nothing, typedInfo = Nothing}
 
-  pure FileInfo{..}
-
-getTypedInfo :: FileStatus -> Path Abs -> IO (FileType, FileStatus)
-getTypedInfo status path' = do
+getTypedInfo :: FileStatus -> Path Abs -> IO (Maybe (FileType, FileStatus))
+getTypedInfo status path' = fmap eitherToMaybe $ try @SomeException $ do
   if
     | isDirectory status -> getDirInfo
     | isSymbolicLink status -> getSymlinkInfo
@@ -31,8 +34,8 @@ getTypedInfo status path' = do
     try @SomeException (getFileStatus linkedPath)
       >>= mapM (`getTypedInfo` linkedPath)
       <&> \case
-        Left _ -> (Link Nothing, status)
-        Right fileInfo -> first (Link . Just) fileInfo
+        Right (Just typedInfo) -> first (Link <. Just) typedInfo
+        _ -> (Link Nothing, status)
 
   getDirInfo = do
     itemCount <-
@@ -41,16 +44,17 @@ getTypedInfo status path' = do
     pure (Dir DirData{..}, status)
 
 isRealDir :: FileInfo -> Bool
-isRealDir FileInfo{typedInfo = Dir _} = True
+isRealDir FileInfo{typedInfo = Just (Dir _)} = True
 isRealDir _ = False
 
 isDir :: FileInfo -> Bool
-isDir FileInfo{typedInfo = info} = dirHelper info
+isDir FileInfo{typedInfo = Nothing} = False
+isDir FileInfo{typedInfo = Just info} = dirHelper info
  where
   dirHelper (Dir _) = True
   dirHelper (Link (Just l)) = dirHelper l
   dirHelper _ = False
 
 isLink :: FileInfo -> Bool
-isLink FileInfo{typedInfo = Link _} = True
+isLink FileInfo{typedInfo = Just (Link _)} = True
 isLink _ = False
