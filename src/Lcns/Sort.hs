@@ -1,6 +1,6 @@
 module Lcns.Sort (invertSort, defSort, cmpWith) where
 
-import Lcns.FileInfo (isDir)
+import Lcns.FileInfo (isDir, nameOf)
 import Lcns.Path (fromRel)
 import Lcns.Prelude
 
@@ -11,7 +11,7 @@ invertSort :: SortFunction -> SortFunction
 invertSort sortf = sortf{reversed = not sortf.reversed}
 
 defSort :: FileInfo -> FileInfo -> Ordering
-defSort = compare `on` \file -> (Down $ isDir file, BS.map toLower $ fromRel file.name)
+defSort = compare `on` \file -> (Down $ isDir file, BS.map toLower $ fromRel $ nameOf file)
 
 cmpWith :: SortFunction -> FileInfo -> FileInfo -> Ordering
 cmpWith sortf fi1 fi2 = flip' $ cmp fi1 fi2

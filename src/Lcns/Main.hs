@@ -1,16 +1,17 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 
 module Lcns.Main (lcns) where
 
 import Brick hiding (Down, on)
 import Brick.BChan (BChan, newBChan)
-import Brick.Widgets.List (renderList)
-import Data.HashMap.Strict qualified as Map
+import Brick.Widgets.List (listElements, renderList)
 import Graphics.Vty.Attributes
 import Lcns.Config
+import Lcns.DirTree (buildDir, buildParentDir, child, refreshSelected)
 import Lcns.EventHandling
+import Lcns.FileInfo (isDir, isRealDir, nameOf)
 import Lcns.FileTracker
-import Lcns.ListUtils qualified as LU
 import Lcns.Path
 import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
@@ -35,30 +36,21 @@ buildInitialState channel inotify = do
           , dirWatcher = emptyWatcher Current
           , childWatcher = emptyWatcher Child
           }
-  dir <- getCurrentDirectory
-  refreshState dir
-    =<< refreshState
-      dir
-      AppState
-        { files = emptyFiles Current "files"
-        , parentFiles = emptyFiles Parent "parent files"
-        , childFiles = emptyFiles Child "child files"
-        , dir
-        , sortFunction = SF{reversed = False, func = Nothing}
-        , showDotfiles = True
-        , watchers
-        , selections = Map.empty
-        }
- where
-  emptyFiles :: WhichDir -> Text -> DirFiles
-  emptyFiles dir name = DirFiles{dir, name, list = LU.empty name}
+  let sortFunction = SF{reversed = False, func = Nothing, showDotfiles = True}
+  path <- getCurrentDirectory
 
+  parentDir <- buildParentDir path sortFunction
+  dir <- buildDir (dirBuilder path & #parent .~ parentDir) sortFunction
+
+  AppState{..} & execStateT (refreshSelected >> refreshWatchers)
+ where
   emptyWatcher dir = DirWatcher{dir, watcher = Nothing}
 
-preview :: DirWatcher -> FileSeq -> Widget ResourceName
-preview w childFiles = case w.watcher of
-  Just _ -> renderDir False childFiles
-  Nothing -> padAll 1 $ txt "preview" <=> txt "placeholder"
+preview :: Maybe FileInfo -> Widget ResourceName
+preview = maybe emptyWidget \case
+  SavedDir dir -> renderDir False (Just dir)
+  Link{link} -> preview link -- TODO: properly generate SavedDir for symlinks
+  _ -> padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName
 spacer = txt "\8203" -- it's a kind of magic...
@@ -68,25 +60,25 @@ drawTUI s =
   one $
     topPanel
       <=> hBox
-        [ renderDir False s.parentFiles.list
+        [ renderDir False s.dir.parent
         , spacer
-        , renderDir True s.files.list
+        , renderDir True $ s ^? #dir
         , spacer
-        , preview s.watchers.childWatcher s.childFiles.list
+        , preview $ s ^? #dir % child
         ]
       <=> bottomPanel
  where
-  topPanel = txt (decode s.dir) <+> fillLine
+  topPanel = txt (decode s.dir.path) <+> fillLine
   bottomPanel = fillLine -- placeholder
 
-renderDir :: Bool -> FileSeq -> Widget ResourceName
-renderDir = renderList renderFile
+renderDir :: Bool -> Maybe DirTree -> Widget ResourceName
+renderDir hasFocus = maybe emptyWidget $ view #files .> renderList renderFile hasFocus
 
 fillLine :: Widget n
 fillLine = vLimit 1 $ fill ' '
 
 line :: FileInfo -> Widget n
-line file = padLeftRight 1 $ txt (decode file.name) <+> fillLine <+> str (size file)
+line file = padLeftRight 1 $ txt (decode $ nameOf file) <+> fillLine <+> str (size file)
 
 renderFile :: Bool -> FileInfo -> Widget n
 renderFile isSelected file =
@@ -94,25 +86,26 @@ renderFile isSelected file =
     ( attrName $
         if isSelected
           then "selected"
-          else fileAttr file.typedInfo
+          else fileAttr file
     )
     $ line file
 
-fileAttr :: Maybe FileType -> String
-fileAttr Nothing = "file"
-fileAttr (Just fileType) = case fileType of
-  Link Nothing -> "invalid-link"
-  Link (Just (Dir _)) -> "directory-link"
-  Link (Just (File _)) -> "link"
-  Link (Just nestedLink) -> fileAttr $ Just nestedLink
-  Dir _ -> "directory"
-  File _ -> "file"
+fileAttr :: FileInfo -> String
+fileAttr file
+  | isRealDir file = "directory"
+  | isDir file = "directory-link"
+fileAttr Link{link = Nothing} = "invalid-link"
+fileAttr Link{} = "link"
+fileAttr _ = "file"
 
 size :: FileInfo -> String
-size FileInfo{typedInfo = Nothing} = "?"
-size file@FileInfo{typedInfo = Just typedInfo} = case typedInfo of
-  File _ ->
-    case fileSize <$> file.status of
+size = \case
+  SavedDir{dir} -> dir.files & listElements & length & show
+  Dir{itemCount} -> maybe "?" show itemCount
+  Link{link = Nothing} -> "N/A"
+  Link{link = Just fi} -> size fi
+  File{status} ->
+    case fileSize <$> status of
       Nothing -> "?"
       Just (COff n) ->
         if
@@ -121,9 +114,6 @@ size file@FileInfo{typedInfo = Just typedInfo} = case typedInfo of
           | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
           | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
           | otherwise -> n `div'` (2 ^! 30) $ " GiB"
-  Dir di -> maybe "?" show di.itemCount
-  Link (Just l) -> size file{typedInfo = Just l}
-  Link Nothing -> "N/A"
 
 infixl 8 ^!
 (^!) :: Num a => a -> Int -> a

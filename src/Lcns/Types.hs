@@ -3,15 +3,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- v  NoFieldSelectors makes partial fields safe to use
+{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 module Lcns.Types (
   ResourceName,
   FileSeq,
   Relativity (..),
   Path (..),
-  DirData (..),
-  FileData (..),
-  FileType (..),
   FileInfo (..),
   SortFunction (..),
   INotifyState (..),
@@ -19,15 +18,17 @@ module Lcns.Types (
   WhichDir (..),
   LcnsEvent (..),
   DirWatcher (..),
-  DirFiles (..),
   AppM,
   Config (..),
+  DirTree (..),
+  DirBuilder (..),
 )
 where
 
 import Brick (EventM)
 import Brick.BChan (BChan)
 import Brick.Widgets.List (GenericList)
+import Data.Time (UTCTime)
 import Graphics.Vty.Input (Key, Modifier)
 import Optics.Operators ((.~))
 import Optics.TH (
@@ -36,6 +37,7 @@ import Optics.TH (
   makeFieldLabelsFor,
   makeFieldLabelsNoPrefix,
   makeFieldLabelsWith,
+  makePrismLabels,
  )
 import Relude
 import System.INotify (Event, INotify, WatchDescriptor)
@@ -54,34 +56,32 @@ data Relativity
 newtype Path (rel :: Relativity) = Path PosixPath
   deriving (Eq, Ord, Hashable, Show)
 
-newtype DirData = DirData
-  { itemCount :: Maybe Int
-  }
-
-makeFieldLabelsNoPrefix ''DirData
-
-data FileData = FileData -- this doesn't seem like good naming to me
-  {
-  }
-
-data FileType
-  = Dir DirData
-  | Link ~(Maybe FileType)
-  | File FileData
-
-data FileInfo = FileInfo
-  { name :: Path Rel
-  , status :: Maybe FileStatus -- I've encountered some cryptic Steam files that don't have a valid file status
-  , typedInfo :: Maybe FileType -- couldn't come up with a better name
-  }
-
-makeFieldLabelsNoPrefix ''FileInfo
-
 type FileSeq = GenericList ResourceName Seq FileInfo
+
+data DirTree = DirTree
+  { modTime :: UTCTime
+  , path :: Path Abs
+  , files :: FileSeq
+  , parent :: Maybe DirTree
+  }
+
+-- copypasting ain't nice, but it's still better than a lot of nesting
+-- optics also makes it convenient (and safe) to work with partial record fields
+-- this would have been way nicer with row-polymorphic records
+data FileInfo
+  = Dir {path :: Path Abs, name :: Path Rel, itemCount :: Maybe Int} -- invariant: the selected file in current dir is never a Dir
+  | Link {path :: Path Abs, name :: Path Rel, status :: Maybe FileStatus, link :: Maybe FileInfo}
+  | File {path :: Path Abs, name :: Path Rel, status :: Maybe FileStatus}
+  | SavedDir {dir :: DirTree}
+
+makeFieldLabelsNoPrefix ''DirTree
+makeFieldLabelsNoPrefix ''FileInfo
+makePrismLabels ''FileInfo
 
 data SortFunction = SF
   { reversed :: Bool
   , func :: Maybe (FileInfo -> FileInfo -> Ordering)
+  , showDotfiles :: Bool
   }
 
 makeFieldLabelsNoPrefix ''SortFunction
@@ -116,23 +116,10 @@ makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatc
 
 -- #all is not the best name, but it will do for now
 
-data DirFiles = DirFiles
-  { dir :: WhichDir
-  , name :: ResourceName
-  , list :: FileSeq
-  }
-makeFieldLabelsWith (fieldLabelsRulesFor [("dir", "dir"), ("name", "name")] & generateUpdateableOptics .~ False) ''DirFiles
-makeFieldLabelsWith (fieldLabelsRulesFor [("list", "list")]) ''DirFiles
-
 data AppState = AppState
-  { files :: DirFiles
-  , parentFiles :: DirFiles
-  , childFiles :: DirFiles
-  , dir :: Path Abs
+  { dir :: DirTree
   , sortFunction :: SortFunction
-  , showDotfiles :: Bool
   , watchers :: INotifyState
-  , selections :: HashMap (Path Abs) (Path Rel)
   }
 
 makeFieldLabelsNoPrefix ''AppState
@@ -143,3 +130,12 @@ type AppM a = EventM ResourceName AppState a
 newtype Config = Config
   { keybindings :: Key -> [Modifier] -> AppM ()
   }
+
+data DirBuilder = DirBuilder
+  { path :: Path Abs
+  , parent :: Maybe DirTree
+  , maybeModTime :: Maybe UTCTime
+  , prevSelection :: Maybe (Path Rel)
+  }
+
+makeFieldLabelsNoPrefix ''DirBuilder

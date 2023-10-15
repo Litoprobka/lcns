@@ -20,6 +20,9 @@ module Lcns.Path (
   combineWithDots,
   takeParent,
   tryListDirectory,
+  getModificationTime,
+  tryGetModTime,
+  traversing,
 ) where
 
 import Lcns.Prelude
@@ -32,7 +35,7 @@ import System.Posix.PosixString qualified as PS
 
 -- convincing `coerce` to work
 
-import Control.Exception (try)
+import Data.Time (UTCTime)
 import System.OsString.Internal.Types (OsString (..), PosixString (..))
 import System.Posix.ByteString (RawFilePath)
 
@@ -95,6 +98,9 @@ listDirectory path = map mkRel <$> io (D.listDirectory $ toOS path)
 listDirectoryAbs :: MonadIO m => Path a -> m [Path a]
 listDirectoryAbs path = map (path </>) <$> listDirectory path
 
+getModificationTime :: MonadIO m => Path any -> m UTCTime
+getModificationTime = wrapIO D.getModificationTime
+
 -- * Posix wrappers
 
 getFileStatus :: MonadIO m => Path any -> m PS.FileStatus
@@ -147,4 +153,14 @@ takeParent path
 
 tryListDirectory :: MonadIO m => Path a -> m [Path a]
 tryListDirectory path = do
-  io (try @SomeException (listDirectoryAbs path)) <&> fromRight []
+  try @SomeException (listDirectoryAbs path) <&> fromRight []
+
+tryGetModTime :: MonadIO m => Path any -> m (Maybe UTCTime)
+tryGetModTime = tryJust <. getModificationTime
+
+-- | focus some part(s) of state and apply an effectful computation to it
+traversing :: MonadState s m => Is k A_Traversal => Optic' k is s a -> (a -> m a) -> m ()
+traversing optic f =
+  get
+    >>= traverseOf optic f -- hence the name
+    >>= put

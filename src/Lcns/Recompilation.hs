@@ -1,14 +1,13 @@
 module Lcns.Recompilation (recompileAndRun) where
 
-import Relude
+import Lcns.Prelude
 
-import Control.Exception (handle)
 import Data.Time (UTCTime)
 import System.Directory
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.Posix (executeFile)
-import System.Process (createProcess, cwd, proc, waitForProcess) -- RawFilePath.Process doesn't let you change cwd
+import System.Process (createProcess, cwd, proc, waitForProcess)
 
 data Dirs = Dirs
   { cache :: FilePath
@@ -70,4 +69,4 @@ shouldRecompile dirs = do
 
 getModTime :: FilePath -> IO (Maybe UTCTime)
 getModTime path =
-  handle @SomeException (const $ pure Nothing) $ Just <$> getModificationTime path
+  tryJust $ getModificationTime path

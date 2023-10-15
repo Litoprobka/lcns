@@ -4,7 +4,6 @@ import Lcns.Prelude
 
 import Brick (App, customMain)
 import Brick.BChan (BChan, writeBChan)
-import Control.Exception (try)
 import Graphics.Vty (defaultConfig, mkVty)
 import Lcns.Path (fromAbs)
 import System.INotify (
@@ -29,9 +28,8 @@ trackedEvents =
 watchDir :: MonadIO m => DirWatcher -> INotify -> Path Abs -> BChan LcnsEvent -> m DirWatcher
 watchDir w inotify path channel = do
   newWatch <-
-    io $
-      try @SomeException (addWatch inotify trackedEvents (fromAbs path) sendEvent)
-        <&> either (const Nothing) Just
+    try @SomeException (addWatch inotify trackedEvents (fromAbs path) sendEvent)
+      <&> either (const Nothing) Just
 
   killWatcher w <&> #watcher .~ newWatch
  where

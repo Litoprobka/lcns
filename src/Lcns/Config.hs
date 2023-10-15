@@ -8,7 +8,6 @@ import Lcns.EventHandling hiding (
   handleAppEvent,
   handleEventWith,
   handleVtyEvent,
-  refreshState,
  )
 import Lcns.Prelude
 

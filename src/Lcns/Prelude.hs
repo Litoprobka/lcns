@@ -14,7 +14,10 @@ module Lcns.Prelude (
   flipOrder,
   onJust,
   io,
-  eitherToMaybe,
+  try,
+  tryJust,
+  idTrav,
+  dirBuilder,
 ) where
 
 import Relude hiding (uncons)
@@ -24,6 +27,8 @@ import Lcns.Types
 import Optics
 import Optics.Operators
 import Optics.State.Operators
+
+import Control.Exception qualified as E (try)
 
 infixr 9 <..
 
@@ -72,5 +77,17 @@ onJust = flip whenJust
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
-eitherToMaybe :: Either a b -> Maybe b
-eitherToMaybe = preview _Right
+try :: (Exception e, MonadIO m) => IO a -> m (Either e a)
+try action = io $ E.try action
+
+tryJust :: MonadIO m => IO a -> m (Maybe a)
+tryJust action = preview _Right <$> try @SomeException action
+
+{- | An AffineTraversal that always focuses the whole structure.
+   Optics wouldn't let me cast `simple` to an AffineTraversal
+-}
+idTrav :: AffineTraversal' a a
+idTrav = atraversal Right (\_ x -> x)
+
+dirBuilder :: Path Abs -> DirBuilder
+dirBuilder path = DirBuilder path Nothing Nothing Nothing

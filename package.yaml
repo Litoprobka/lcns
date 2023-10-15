@@ -18,6 +18,7 @@ extra-source-files:
 language: GHC2021
 
 default-extensions:
+  - BlockArguments
   - DataKinds
   - DuplicateRecordFields
   - NoImplicitPrelude
