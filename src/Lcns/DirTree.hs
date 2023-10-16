@@ -1,9 +1,21 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Lcns.DirTree (goUp, goDown, goLeft, goRight, child, childOrLink, buildDir, refreshSelected, refreshSavedDir, buildParentDir) where
+module Lcns.DirTree (
+  goUp,
+  goDown,
+  goLeft,
+  goRight,
+  child,
+  childOrLink,
+  buildDir,
+  refreshSelected,
+  refreshSelected',
+  refreshSavedDir,
+  refreshSavedDir',
+  buildParentDir,
+) where
 
 import Lcns.Path
 import Lcns.Prelude
@@ -56,9 +68,9 @@ goRight = do
     #dir % #parent ?= prevDir
     refreshSelected
 
-refreshSelected :: (MonadIO m, MonadState AppState m) => m ()
-refreshSelected = do
-  traversing (#dir % child % savedDir) refreshSavedDir
+refreshSelected' :: (MonadIO m, MonadState AppState m) => Bool -> m ()
+refreshSelected' shouldRefresh = do
+  traversing (#dir % child % savedDir) (refreshSavedDir' shouldRefresh)
   traversing (#dir % child) \case
     Dir{path} -> do
       dir <- use #dir
@@ -67,15 +79,15 @@ refreshSelected = do
         <&> SavedDir -- note that `child` contains `symlinked`, so this does not remove link nesting
     nonDir -> pure nonDir
 
-{- | rebuild the file list of a DirTree
-TODO: if the old file list contained `SavedDir`s, don't throw away their saved selections
--}
-refreshSavedDir :: (MonadIO m, MonadState AppState m) => DirTree -> m DirTree
-refreshSavedDir dir =
+refreshSelected :: (MonadIO m, MonadState AppState m) => m ()
+refreshSelected = refreshSelected' False
+
+refreshSavedDir' :: (MonadIO m, MonadState AppState m) => Bool -> DirTree -> m DirTree
+refreshSavedDir' shouldRefresh dir =
   tryGetModTime dir.path >>= \case
     Nothing -> pure $ dir & #files %~ listClear
     Just modTime
-      | dir.modTime >= modTime -> pure dir
+      | dir.modTime >= modTime && not shouldRefresh -> pure dir
       | otherwise ->
           use #sortFunction
             >>= buildDir
@@ -85,6 +97,12 @@ refreshSavedDir dir =
                 , maybeModTime = Just modTime
                 , prevSelection = dir ^? child % to nameOf
                 }
+
+{- | rebuild the file list of a DirTree
+TODO: if the old file list contained `SavedDir`s, don't throw away their saved selections
+-}
+refreshSavedDir :: (MonadIO m, MonadState AppState m) => DirTree -> m DirTree
+refreshSavedDir = refreshSavedDir' False
 
 buildParentDir :: MonadIO m => Path Abs -> SortFunction -> m (Maybe DirTree)
 buildParentDir currentPath sortF =

@@ -53,7 +53,7 @@ delete = do
       #dir % #files %= listRemove index
 
 invertSort :: AppM ()
-invertSort = #sortFunction % #reversed %= not
+invertSort = #sortFunction % #reversed %= not >> rebuild
 
 toggleDotfiles :: AppM ()
 toggleDotfiles = #sortFunction % #showDotfiles %= not >> rebuild
@@ -142,6 +142,6 @@ openFile nonDir =
 
 rebuild :: AppM ()
 rebuild = do
-  traversing #dir refreshSavedDir
-  traversing (#dir % #parent % _Just) refreshSavedDir
-  refreshSelected
+  traversing #dir (refreshSavedDir' True)
+  traversing (#dir % #parent % _Just) (refreshSavedDir' True)
+  refreshSelected' True
