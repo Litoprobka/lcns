@@ -1,8 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Lcns.DirTree (goUp, goDown, goLeft, goRight, child, buildDir, refreshSelected, refreshSavedDir, buildParentDir) where
+module Lcns.DirTree (goUp, goDown, goLeft, goRight, child, childOrLink, buildDir, refreshSelected, refreshSavedDir, buildParentDir) where
 
 import Lcns.Path
 import Lcns.Prelude
@@ -10,16 +11,20 @@ import Lcns.Sort qualified as S
 
 import Brick.Widgets.List (list, listClear, listModify, listMoveBy, listSelectedElement)
 import Data.Sequence qualified as Seq (fromList)
-import Lcns.FileInfo (getFileInfo, nameOf)
+import Lcns.FileInfo (getFileInfo, nameOf, savedDir, symlinked)
 import Lcns.ListUtils qualified as LU
 
 -- listSelectedElementL is a Traversal rather than AffineTraversal, and there's no easy way to downcast
-child :: AffineTraversal' DirTree FileInfo
-child = #files % atraversal getElem setElem
+childOrLink :: AffineTraversal' DirTree FileInfo
+childOrLink = #files % atraversal getElem setElem
  where
   getElem l =
     listSelectedElement l & maybe (Left l) (Right <. snd)
   setElem l item = l & listModify (const item)
+
+-- | focuses the selected file, traversing through symlinks
+child :: AffineTraversal' DirTree FileInfo
+child = childOrLink % symlinked
 
 scroll :: Int -> AppM ()
 scroll dist = do
@@ -46,20 +51,20 @@ goRight :: AppM ()
 goRight = do
   prevDir <- use #dir
   -- note that `child` *cannot* be a Dir here
-  prevDir ^? child % #_SavedDir & onJust \childDir -> do
+  prevDir ^? child % savedDir & onJust \childDir -> do
     #dir .= childDir
     #dir % #parent ?= prevDir
     refreshSelected
 
 refreshSelected :: (MonadIO m, MonadState AppState m) => m ()
 refreshSelected = do
-  dir <- use #dir
+  traversing (#dir % child % savedDir) refreshSavedDir
   traversing (#dir % child) \case
-    Dir{path} ->
+    Dir{path} -> do
+      dir <- use #dir
       use #sortFunction
         >>= buildDir (dirBuilder path & #parent ?~ dir)
-        <&> SavedDir
-    SavedDir childDir -> SavedDir <$> refreshSavedDir childDir -- new SavedDir would have an outdated parent, but it doesn't matter here
+        <&> SavedDir -- note that `child` contains `symlinked`, so this does not remove link nesting
     nonDir -> pure nonDir
 
 {- | rebuild the file list of a DirTree

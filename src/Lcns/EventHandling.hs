@@ -68,7 +68,7 @@ refreshWatchers = do
 getDirs :: (MonadIO m, MonadState AppState m) => m (WhichDir -> Maybe (Path Abs))
 getDirs = do
   path <- use $ #dir % #path
-  childDirPath <- preuse $ #dir % child % #_SavedDir % #path
+  childDirPath <- preuse $ #dir % child % savedDir % #path
   pure $ \case
     Parent -> takeParent path
     Current -> Just path
@@ -106,7 +106,7 @@ handleAppEvent (DirEvent dir event) = case event of
   files = (\opt -> #dir % opt % #files) $ case dir of
     Current -> idTrav
     Parent -> #parent % _Just
-    Child -> child % #_SavedDir
+    Child -> child % savedDir
 
   actOnFile :: (SortFunction -> FileInfo -> FileSeq -> FileSeq) -> RawFilePath -> Path Abs -> AppM ()
   actOnFile f path parent = do
@@ -133,7 +133,8 @@ handleEventWith cfg event = case event of
   MouseUp{} -> pass
 
 openFile :: FileInfo -> AppM ()
-openFile SavedDir{} = goRight
+openFile file
+  | isDir file = goRight
 openFile nonDir =
   executeFile (fromRaw "xdg-open") True name Nothing
  where

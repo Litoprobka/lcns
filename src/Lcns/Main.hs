@@ -10,7 +10,7 @@ import Graphics.Vty.Attributes
 import Lcns.Config
 import Lcns.DirTree (buildDir, buildParentDir, child, refreshSelected)
 import Lcns.EventHandling
-import Lcns.FileInfo (isDir, isRealDir, nameOf)
+import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, symlinked)
 import Lcns.FileTracker
 import Lcns.Path
 import Lcns.Prelude hiding (preview)
@@ -46,10 +46,10 @@ buildInitialState channel inotify = do
  where
   emptyWatcher dir = DirWatcher{dir, watcher = Nothing}
 
+-- note: since `preview` is only ever called from `drawTUI` via `% child`, we don't have to handle symlinks here at all
 preview :: Maybe FileInfo -> Widget ResourceName
 preview = maybe emptyWidget \case
   SavedDir dir -> renderDir False (Just dir)
-  Link{link} -> preview link -- TODO: properly generate SavedDir for symlinks
   _ -> padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName
@@ -94,9 +94,9 @@ fileAttr :: FileInfo -> String
 fileAttr file
   | isRealDir file = "directory"
   | isDir file = "directory-link"
-fileAttr Link{link = Nothing} = "invalid-link"
-fileAttr Link{} = "link"
-fileAttr _ = "file"
+  | isn't symlinked file = "invalid-link" -- symlinked fails iff it doesn't point to a valid file
+  | isLink file = "link"
+  | otherwise = "file"
 
 size :: FileInfo -> String
 size = \case
