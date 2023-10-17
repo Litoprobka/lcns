@@ -77,7 +77,10 @@ refreshSelected' shouldRefresh = do
       use #sortFunction
         >>= buildDir (dirBuilder path & #parent ?~ dir)
         <&> SavedDir -- note that `child` contains `symlinked`, so this does not remove link nesting
-    nonDir -> pure nonDir
+    file@File{path, contents} -> do
+      newContents <- contents & maybe (tryJust $ decodeUtf8 <$> readFileBS path) (pure <. Just)
+      pure $ file & #contents .~ newContents
+    other -> pure other
 
 refreshSelected :: (MonadIO m, MonadState AppState m) => m ()
 refreshSelected = refreshSelected' False

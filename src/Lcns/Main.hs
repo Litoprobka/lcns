@@ -5,6 +5,7 @@ module Lcns.Main (lcns) where
 
 import Brick hiding (Down, on)
 import Brick.BChan (BChan, newBChan)
+import Brick.Widgets.Center (hCenter)
 import Brick.Widgets.List (listElements, renderList)
 import Graphics.Vty.Attributes
 import Lcns.Config
@@ -50,7 +51,8 @@ buildInitialState channel inotify = do
 preview :: Maybe FileInfo -> Widget ResourceName
 preview = maybe emptyWidget \case
   SavedDir dir -> renderDir False (Just dir)
-  _ -> padAll 1 $ txt "preview" <=> txt "placeholder"
+  File{contents} -> contents & maybe (hCenter $ txt "Could't read file") txt
+  _ -> padRight Max $ padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName
 spacer = txt "\8203" -- it's a kind of magic...
@@ -60,15 +62,20 @@ drawTUI s =
   one $
     topPanel
       <=> hBox
-        [ renderDir False s.dir.parent
+        [ hLimitPercent 25 $ renderDir False s.dir.parent
         , spacer
-        , renderDir True $ s ^? #dir
+        , hLimitPercent 40 $ renderDir True $ s ^? #dir
         , spacer
         , preview $ s ^? #dir % child
         ]
       <=> bottomPanel
  where
-  topPanel = txt (decode s.dir.path) <+> fillLine
+  topPanel =
+    padLeft (Pad 5) $
+      hBox
+        [ withAttr (attrName "top-panel") $ txt (decode s.dir.path <> "/")
+        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? #dir % child)
+        ]
   bottomPanel = fillLine -- placeholder
 
 renderDir :: Bool -> Maybe DirTree -> Widget ResourceName
@@ -83,20 +90,20 @@ line file = padLeftRight 1 $ txt (decode $ nameOf file) <+> fillLine <+> str (si
 renderFile :: Bool -> FileInfo -> Widget n
 renderFile isSelected file =
   withAttr
-    ( attrName $
+    ( mkAttr $
         if isSelected
-          then "selected"
+          then ["selected"]
           else fileAttr file
     )
     $ line file
 
-fileAttr :: FileInfo -> String
+fileAttr :: FileInfo -> [String]
 fileAttr file
-  | isRealDir file = "directory"
-  | isDir file = "directory-link"
-  | isn't symlinked file = "invalid-link" -- symlinked fails iff it doesn't point to a valid file
-  | isLink file = "link"
-  | otherwise = "file"
+  | isRealDir file = ["directory"]
+  | isDir file = ["link", "directory"]
+  | isn't symlinked file = ["invalid-link"] -- `symlinked` fails iff it doesn't point to a valid file
+  | isLink file = ["link"]
+  | otherwise = ["file"]
 
 size :: FileInfo -> String
 size = \case
@@ -132,14 +139,20 @@ app cfg =
     , appAttrMap = mkAttrMap
     }
 
+-- because Brick doesn't export AttrName's constructor
+mkAttr :: [String] -> AttrName
+mkAttr = foldMap attrName
+
 mkAttrMap :: AppState -> AttrMap
 mkAttrMap =
   const $
     attrMap (fg white) $
-      first attrName
-        <$> [ ("selected", currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
-            , ("directory", currentAttr `withStyle` bold `withForeColor` brightBlue)
-            , ("link", currentAttr `withForeColor` cyan)
-            , ("directory-link", currentAttr `withForeColor` cyan `withStyle` bold)
-            , ("invalid-link", currentAttr `withForeColor` blue)
-            ]
+      traversed % _1 %~ mkAttr $
+        [ (["selected"], currentAttr `withBackColor` brightBlue `withForeColor` black `withStyle` bold)
+        , (["directory"], currentAttr `withStyle` bold `withForeColor` brightBlue)
+        , (["link"], currentAttr `withForeColor` cyan)
+        , (["link", "directory"], currentAttr `withStyle` bold)
+        , (["invalid-link"], currentAttr `withForeColor` blue)
+        , (["top-panel"], currentAttr `withStyle` bold `withForeColor` brightBlue) -- happens to be identical to `"director"`, but that's up to change
+        , (["top-panel", "selected"], currentAttr `withForeColor` white)
+        ]

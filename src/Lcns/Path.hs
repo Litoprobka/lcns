@@ -23,14 +23,15 @@ module Lcns.Path (
   getModificationTime,
   tryGetModTime,
   traversing,
+  readFileBS,
 ) where
 
 import Lcns.Prelude
 
+import Data.ByteString qualified as BS (readFile)
 import System.Directory.OsPath qualified as D
 import System.OsPath (OsPath)
 import System.OsPath qualified as OP
-
 import System.Posix.PosixString qualified as PS
 
 -- convincing `coerce` to work
@@ -164,3 +165,6 @@ traversing optic f =
   get
     >>= traverseOf optic f -- hence the name
     >>= put
+
+readFileBS :: MonadIO m => Path any -> m ByteString
+readFileBS path = io $ BS.readFile $ toString $ decode path

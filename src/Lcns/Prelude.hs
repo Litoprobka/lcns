@@ -20,7 +20,7 @@ module Lcns.Prelude (
   dirBuilder,
 ) where
 
-import Relude hiding (uncons)
+import Relude hiding (readFileBS, uncons)
 
 import Lcns.Types
 

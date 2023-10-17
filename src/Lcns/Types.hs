@@ -69,9 +69,23 @@ data DirTree = DirTree
 -- optics also makes it convenient (and safe) to work with partial record fields
 -- this would have been way nicer with row-polymorphic records
 data FileInfo
-  = Dir {path :: Path Abs, name :: Path Rel, itemCount :: Maybe Int} -- invariant: the selected file in current dir is never a Dir
-  | Link {path :: Path Abs, name :: Path Rel, status :: Maybe FileStatus, link :: Maybe FileInfo}
-  | File {path :: Path Abs, name :: Path Rel, status :: Maybe FileStatus}
+  = Dir
+      { path :: Path Abs
+      , name :: Path Rel
+      , itemCount :: Maybe Int -- invariant: the selected file in current dir is never a Dir
+      }
+  | Link
+      { path :: Path Abs
+      , name :: Path Rel
+      , status :: Maybe FileStatus
+      , link :: Maybe FileInfo
+      }
+  | File
+      { path :: Path Abs
+      , name :: Path Rel
+      , status :: Maybe FileStatus
+      , contents :: Maybe Text
+      }
   | SavedDir {dir :: DirTree}
 
 makeFieldLabelsNoPrefix ''DirTree

@@ -1,17 +1,14 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, symlinked) where
 
-import Lcns.Prelude
-
 import Lcns.Path
+import Lcns.Prelude
 
 import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
 getFileInfo :: MonadIO m => Path Abs -> m FileInfo
-getFileInfo path = tryGetFileInfo path <&> fromMaybe File{path, name = takeFileName path, status = Nothing}
+getFileInfo path = tryGetFileInfo path <&> fromMaybe File{path, name = takeFileName path, status = Nothing, contents = Nothing}
 
 tryGetFileInfo :: MonadIO m => Path Abs -> m (Maybe FileInfo)
 tryGetFileInfo path = do
@@ -20,10 +17,10 @@ tryGetFileInfo path = do
       if
         | isDirectory status -> getDirInfo
         | isSymbolicLink status -> getSymlinkInfo status
-        | otherwise -> pure $ emptyFile & #status ?~ status
+        | otherwise -> do
+            pure File{path, name, status = Just status, contents = Nothing}
  where
   name = takeFileName path
-  emptyFile = File{path, name, status = Nothing}
 
   getSymlinkInfo :: MonadIO m => FileStatus -> m FileInfo
   getSymlinkInfo status = fmap (fromMaybe emptyLink) $ tryJust $ do
