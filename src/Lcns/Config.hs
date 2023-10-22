@@ -19,7 +19,7 @@ instance Default Config where
   def = Config{keybindings}
    where
     keybindings = \cases
-      (KChar 'q') [MCtrl] -> halt
+      (KChar 'q') [MCtrl] -> AppM $ lift halt -- this... is not nice
       KUp [] -> moveUp
       KDown [] -> moveDown
       KRight [] -> open

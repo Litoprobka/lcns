@@ -4,7 +4,7 @@
 module Lcns.Main (lcns) where
 
 import Brick hiding (Down, on)
-import Brick.BChan (BChan, newBChan)
+import Brick.BChan (newBChan)
 import Brick.Widgets.Center (hCenter)
 import Brick.Widgets.List (listElements, renderList)
 import Graphics.Vty.Attributes
@@ -16,24 +16,22 @@ import Lcns.FileTracker
 import Lcns.Path
 import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
-import System.INotify (INotify, withINotify)
+import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
 
 lcns :: Config -> IO ()
-lcns cfg = do
+lcns config = do
   channel <- newBChan 8 -- in theory, 3 should work
-  void $
-    withINotify $
-      buildInitialState channel
-        >=> mainWithFileTracker channel (app cfg)
+  void $ withINotify \inotify -> do
+    let env = AppEnv{..}
+    buildInitialState env
+      >>= mainWithFileTracker channel (app env)
 
-buildInitialState :: BChan LcnsEvent -> INotify -> IO AppState
-buildInitialState channel inotify = do
+buildInitialState :: AppEnv -> IO AppState
+buildInitialState env = do
   let watchers =
         INotifyState
-          { inotify
-          , channel
-          , parentWatcher = emptyWatcher Parent
+          { parentWatcher = emptyWatcher Parent
           , dirWatcher = emptyWatcher Current
           , childWatcher = emptyWatcher Child
           }
@@ -43,7 +41,7 @@ buildInitialState channel inotify = do
   parentDir <- buildParentDir path sortFunction
   dir <- buildDir (dirBuilder path & #parent .~ parentDir) sortFunction
 
-  AppState{..} & execStateT (refreshSelected >> refreshWatchers)
+  AppState{..} & execStateT (refreshSelected >> refreshWatchers) & usingReaderT env
  where
   emptyWatcher dir = DirWatcher{dir, watcher = Nothing}
 
@@ -129,12 +127,12 @@ infixl 8 ^!
 div' :: Int64 -> Double -> String -> String
 div' x y = showFFloat (Just 2) (fromIntegral x / y)
 
-app :: Config -> App AppState LcnsEvent ResourceName
-app cfg =
+app :: AppEnv -> App AppState LcnsEvent ResourceName
+app env =
   App
     { appDraw = drawTUI
     , appChooseCursor = showFirstCursor
-    , appHandleEvent = handleEventWith cfg
+    , appHandleEvent = withEnv env <. handleEventWith
     , appStartEvent = pass
     , appAttrMap = mkAttrMap
     }

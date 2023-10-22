@@ -58,12 +58,12 @@ invertSort = #sortFunction % #reversed %= not >> rebuild
 toggleDotfiles :: AppM ()
 toggleDotfiles = #sortFunction % #showDotfiles %= not >> rebuild
 
-refreshWatchers :: (MonadIO m, MonadState AppState m) => m ()
+refreshWatchers :: (MonadIO m, MonadState AppState m, MonadReader AppEnv m) => m ()
 refreshWatchers = do
-  watchers <- use #watchers
+  env <- ask
   getDirPure <- getDirs
   traversing (#watchers % #all) killWatcher -- hinotify (or inotify itself) treats multiple WatchDescriptor-s  on the same directory as one
-  traversing (#watchers % #all) (refreshWatch watchers getDirPure) -- so we have to remove all of them before recreating*
+  traversing (#watchers % #all) (refreshWatch env getDirPure) -- so we have to remove all of them before recreating*
 
 getDirs :: (MonadIO m, MonadState AppState m) => m (WhichDir -> Maybe (Path Abs))
 getDirs = do
@@ -74,21 +74,23 @@ getDirs = do
     Current -> Just path
     Child -> childDirPath
 
-refreshWatch :: MonadIO m => INotifyState -> (WhichDir -> Maybe (Path Abs)) -> DirWatcher -> m DirWatcher
-refreshWatch watchers getDir dw =
+refreshWatch :: MonadIO m => AppEnv -> (WhichDir -> Maybe (Path Abs)) -> DirWatcher -> m DirWatcher
+refreshWatch env getDir dw =
   getDir dw.dir & \case
     Nothing -> killWatcher dw
     Just dir' ->
       watchDir
         dw
-        watchers.inotify
+        env.inotify
         dir'
-        watchers.channel
+        env.channel
 
-handleVtyEvent :: Config -> Event -> AppM ()
-handleVtyEvent cfg = \case
-  EvKey key mods -> cfg.keybindings key mods
-  _ -> pass
+handleVtyEvent :: Event -> AppM ()
+handleVtyEvent event = do
+  cfg <- asking #config
+  case event of
+    EvKey key mods -> cfg.keybindings key mods
+    _ -> pass
 
 handleAppEvent :: LcnsEvent -> AppM ()
 handleAppEvent (DirEvent dir event) = case event of
@@ -121,13 +123,14 @@ handleAppEvent (DirEvent dir event) = case event of
       Nothing ->
         files %= listClear
 
+  evUpdate :: RawFilePath -> AppM ()
   evUpdate = withParent <. actOnFile LU.update
   evCreate = withParent <. actOnFile LU.insert
   evDelete name = withParent $ const $ files %= LU.delete (takeFileName $ fromRaw name)
 
-handleEventWith :: Config -> BrickEvent n LcnsEvent -> AppM ()
-handleEventWith cfg event = case event of
-  VtyEvent vtye -> handleVtyEvent cfg vtye
+handleEventWith :: BrickEvent n LcnsEvent -> AppM ()
+handleEventWith event = case event of
+  VtyEvent vtye -> handleVtyEvent vtye
   AppEvent appEv -> handleAppEvent appEv
   MouseDown{} -> pass
   MouseUp{} -> pass

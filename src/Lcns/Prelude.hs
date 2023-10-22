@@ -4,10 +4,8 @@ module Lcns.Prelude (
   module Optics,
   module Optics.Operators,
   module Optics.State.Operators,
-  (<..),
   (.>),
   (<.),
-  (<<&>>),
   applyWhen,
   applyIf,
   applyJust,
@@ -17,7 +15,10 @@ module Lcns.Prelude (
   try,
   tryJust,
   idTrav,
+  traversing,
+  asking,
   dirBuilder,
+  withEnv,
 ) where
 
 import Relude hiding (readFileBS, uncons)
@@ -29,12 +30,7 @@ import Optics.Operators
 import Optics.State.Operators
 
 import Control.Exception qualified as E (try)
-
-infixr 9 <..
-
-{-# INLINE (<..) #-}
-(<..) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
-(f <.. g) x y = f $ g x y
+import Brick (EventM)
 
 infixl 9 .>
 
@@ -47,12 +43,6 @@ infixr 9 <.
 {-# INLINE (<.) #-}
 (<.) :: (b -> c) -> (a -> b) -> a -> c
 (<.) = (.)
-
-infixl 1 <<&>>
-
--- | left-to-right double `fmap` (flipped version of `<<$>>`)
-(<<&>>) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
-(<<&>>) = flip (<<$>>)
 
 applyWhen :: Bool -> (a -> a) -> a -> a
 applyWhen True f = f
@@ -89,5 +79,19 @@ tryJust action = preview _Right <$> try @SomeException action
 idTrav :: AffineTraversal' a a
 idTrav = atraversal Right (\_ x -> x)
 
+-- | focus some part(s) of state and apply an effectful computation to it
+traversing :: MonadState s m => Is k A_Traversal => Optic' k is s a -> (a -> m a) -> m ()
+traversing optic f =
+  get
+    >>= traverseOf optic f -- hence the name
+    >>= put
+
+asking :: (Is k A_Getter, MonadReader r m) => Optic' k is r a -> m a
+asking = asks <. view
+
 dirBuilder :: Path Abs -> DirBuilder
 dirBuilder path = DirBuilder path Nothing Nothing Nothing
+
+-- | Unwrap AppM and run it with a given Env
+withEnv :: AppEnv -> AppM a -> EventM ResourceName AppState a
+withEnv env (AppM action) = usingReaderT env action

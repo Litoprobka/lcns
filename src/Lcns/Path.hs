@@ -22,7 +22,6 @@ module Lcns.Path (
   tryListDirectory,
   getModificationTime,
   tryGetModTime,
-  traversing,
   readFileBS,
 ) where
 
@@ -158,13 +157,6 @@ tryListDirectory path = do
 
 tryGetModTime :: MonadIO m => Path any -> m (Maybe UTCTime)
 tryGetModTime = tryJust <. getModificationTime
-
--- | focus some part(s) of state and apply an effectful computation to it
-traversing :: MonadState s m => Is k A_Traversal => Optic' k is s a -> (a -> m a) -> m ()
-traversing optic f =
-  get
-    >>= traverseOf optic f -- hence the name
-    >>= put
 
 readFileBS :: MonadIO m => Path any -> m ByteString
 readFileBS path = io $ BS.readFile $ toString $ decode path

@@ -15,13 +15,15 @@ module Lcns.Types (
   SortFunction (..),
   INotifyState (..),
   AppState (..),
+  AppEnv (..),
   WhichDir (..),
   LcnsEvent (..),
   DirWatcher (..),
-  AppM,
+  AppM(..),
   Config (..),
   DirTree (..),
   DirBuilder (..),
+  BrickAppM,
 )
 where
 
@@ -30,10 +32,9 @@ import Brick.BChan (BChan)
 import Brick.Widgets.List (GenericList)
 import Data.Time (UTCTime)
 import Graphics.Vty.Input (Key, Modifier)
-import Optics.Operators ((.~))
+import Lcns.TH (makeGettersFor)
 import Optics.TH (
   fieldLabelsRulesFor,
-  generateUpdateableOptics,
   makeFieldLabelsFor,
   makeFieldLabelsNoPrefix,
   makeFieldLabelsWith,
@@ -114,13 +115,11 @@ data DirWatcher = DirWatcher
   , watcher :: Maybe WatchDescriptor
   }
 
-makeFieldLabelsWith (fieldLabelsRulesFor [("dir", "dir")] & generateUpdateableOptics .~ False) ''DirWatcher
+makeGettersFor ["dir"] ''DirWatcher
 makeFieldLabelsWith (fieldLabelsRulesFor [("watcher", "watcher")]) ''DirWatcher
 
 data INotifyState = INotifyState
-  { channel :: BChan LcnsEvent
-  , inotify :: INotify
-  , parentWatcher :: DirWatcher
+  { parentWatcher :: DirWatcher
   , dirWatcher :: DirWatcher
   , childWatcher :: DirWatcher
   }
@@ -130,20 +129,33 @@ makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatc
 
 -- #all is not the best name, but it will do for now
 
+-- | App monad. Reader over AppEnv, State over AppState.
+-- I wish Brick didn't use a concrete monad, it makes adding transformers to the stack a bit unwieldy
+newtype AppM a = AppM (ReaderT AppEnv (EventM ResourceName AppState) a)
+  deriving (Functor, Applicative, Monad, MonadReader AppEnv, MonadState AppState, MonadIO)
+
+
+type BrickAppM a = EventM ResourceName AppState a
+
+newtype Config = Config
+  { keybindings :: Key -> [Modifier] -> AppM ()
+  }
+
+data AppEnv = AppEnv
+  { channel :: BChan LcnsEvent
+  , inotify :: INotify
+  , config :: Config
+  }
+
 data AppState = AppState
   { dir :: DirTree
   , sortFunction :: SortFunction
   , watchers :: INotifyState
   }
 
+makeGettersFor ["channel", "inotify", "config"] ''AppEnv
 makeFieldLabelsNoPrefix ''AppState
 makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childFiles", "allFiles")] ''AppState
-
-type AppM a = EventM ResourceName AppState a
-
-newtype Config = Config
-  { keybindings :: Key -> [Modifier] -> AppM ()
-  }
 
 data DirBuilder = DirBuilder
   { path :: Path Abs

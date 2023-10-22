@@ -39,6 +39,7 @@ dependencies:
   - optics
   - process
   - relude
+  - template-haskell
   - time
   - unix
   - unordered-containers

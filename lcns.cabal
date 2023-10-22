@@ -35,6 +35,7 @@ library
       Lcns.Prelude
       Lcns.Recompilation
       Lcns.Sort
+      Lcns.TH
       Lcns.Types
   other-modules:
       Paths_lcns
@@ -62,6 +63,7 @@ library
     , optics
     , process
     , relude
+    , template-haskell
     , time
     , unix
     , unordered-containers
@@ -97,6 +99,7 @@ executable lcns
     , optics
     , process
     , relude
+    , template-haskell
     , time
     , unix
     , unordered-containers
