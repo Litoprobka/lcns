@@ -6,27 +6,32 @@ import Lcns.Path
 import Lcns.Prelude
 
 import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
+import Data.HashSet qualified as Set
 
 getFileInfo :: MonadIO m => Path Abs -> m FileInfo
-getFileInfo path = tryGetFileInfo path <&> fromMaybe File{path, name = takeFileName path, status = Nothing, contents = Nothing}
+getFileInfo path = tryGetFileInfo Set.empty path <&> fromMaybe File{path, name = takeFileName path, status = Nothing, contents = Nothing}
 
-tryGetFileInfo :: MonadIO m => Path Abs -> m (Maybe FileInfo)
-tryGetFileInfo path = do
+-- tryGetFile info is not indended to be called directly
+tryGetFileInfo :: MonadIO m => HashSet (Path Abs) -> Path Abs -> m (Maybe FileInfo)
+tryGetFileInfo visited path = do
   tryJust (getSymbolicLinkStatus path)
     >>= traverse \status ->
       if
         | isDirectory status -> getDirInfo
-        | isSymbolicLink status -> getSymlinkInfo status
+        | isSymbolicLink status -> getSymlinkInfo visited status
         | otherwise -> do
             pure File{path, name, status = Just status, contents = Nothing}
  where
   name = takeFileName path
 
-  getSymlinkInfo :: MonadIO m => FileStatus -> m FileInfo
-  getSymlinkInfo status = fmap (fromMaybe emptyLink) $ tryJust $ do
+  getSymlinkInfo :: MonadIO m => HashSet (Path Abs) -> FileStatus -> m FileInfo
+  getSymlinkInfo visited' status = fmap (fromMaybe emptyLink) $ tryJust $ do
     -- "/" is never a symlink, so `takeDirectory` should be fine here
     linkedPath <- withPath id (takeDirectory path </>) <$> readSymbolicLink path
-    nestedInfo <- tryGetFileInfo linkedPath
+    -- if we've already encountered this path, then the link is cyclic and thus invalid
+    guard $ not $ linkedPath `Set.member` visited'
+
+    nestedInfo <- tryGetFileInfo (visited' & Set.insert linkedPath) linkedPath
     pure $ emptyLink & #link .~ nestedInfo
    where
     emptyLink = Link{path, name, status = Just status, link = Nothing}
