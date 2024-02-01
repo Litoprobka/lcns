@@ -21,7 +21,8 @@ module Lcns.Types (
   DirWatcher (..),
   AppM(..),
   Config (..),
-  DirTree (..),
+  DirTree,
+  DirNode (..),
   DirBuilder (..),
   BrickAppM,
 )
@@ -59,12 +60,13 @@ newtype Path (rel :: Relativity) = Path PosixPath
 
 type FileSeq = GenericList ResourceName Seq FileInfo
 
-data DirTree = DirTree
+data DirNode = DirNode
   { modTime :: UTCTime
   , path :: Path Abs
   , files :: FileSeq
-  , parent :: Maybe DirTree
   }
+
+type DirTree = NonEmpty DirNode
 
 -- copypasting ain't nice, but it's still better than a lot of nesting
 -- optics also makes it convenient (and safe) to work with partial record fields
@@ -87,9 +89,9 @@ data FileInfo
       , status :: Maybe FileStatus
       , contents :: Maybe Text
       }
-  | SavedDir {dir :: DirTree}
+  | SavedDir {dir :: DirNode}
 
-makeFieldLabelsNoPrefix ''DirTree
+makeFieldLabelsNoPrefix ''DirNode
 makeFieldLabelsNoPrefix ''FileInfo
 makePrismLabels ''FileInfo
 
@@ -159,7 +161,6 @@ makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childF
 
 data DirBuilder = DirBuilder
   { path :: Path Abs
-  , parent :: Maybe DirTree
   , maybeModTime :: Maybe UTCTime
   , prevSelection :: Maybe (Path Rel)
   }

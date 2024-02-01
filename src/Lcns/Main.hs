@@ -6,10 +6,10 @@ module Lcns.Main (lcns) where
 import Brick hiding (Down, on)
 import Brick.BChan (newBChan)
 import Brick.Widgets.Center (hCenter)
-import Brick.Widgets.List (listElements, renderList)
+import Brick.Widgets.List (listElements, listNameL, renderList)
 import Graphics.Vty.Attributes
 import Lcns.Config
-import Lcns.DirTree (buildDir, buildParentDir, child, refreshSelected)
+import Lcns.DirTree (buildDirTree, childDir, curDir, parent, refreshSelected)
 import Lcns.EventHandling
 import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, symlinked)
 import Lcns.FileTracker
@@ -37,9 +37,7 @@ buildInitialState env = do
           }
   let sortFunction = SF{reversed = False, func = Nothing, showDotfiles = True}
   path <- getCurrentDirectory
-
-  parentDir <- buildParentDir path sortFunction
-  dir <- buildDir (dirBuilder path & #parent .~ parentDir) sortFunction
+  dir <- buildDirTree sortFunction path
 
   AppState{..} & execStateT (refreshSelected >> refreshWatchers) & usingReaderT env
  where
@@ -48,7 +46,7 @@ buildInitialState env = do
 -- note: since `preview` is only ever called from `drawTUI` via `% child`, we don't have to handle symlinks here at all
 preview :: Maybe FileInfo -> Widget ResourceName
 preview = maybe emptyWidget \case
-  SavedDir dir -> renderDir False (Just dir)
+  SavedDir dir -> renderDir "preview-" False (Just dir)
   File{contents} -> contents & maybe (hCenter $ txt "Could't read file") txt
   _ -> padRight Max $ padAll 1 $ txt "preview" <=> txt "placeholder"
 
@@ -60,24 +58,29 @@ drawTUI s =
   one $
     topPanel
       <=> hBox
-        [ hLimitPercent 25 $ renderDir False s.dir.parent
+        [ hLimitPercent 25 $ renderDir "parent-" False $ s ^? parent
         , spacer
-        , hLimitPercent 40 $ renderDir True $ s ^? #dir
+        , hLimitPercent 40 $ renderDir "current-" True $ s ^? curDir
         , spacer
-        , preview $ s ^? #dir % child
+        , preview $ s ^? childDir
         ]
       <=> bottomPanel
  where
   topPanel =
     padLeft (Pad 5) $
       hBox
-        [ withAttr (attrName "top-panel") $ txt (decode s.dir.path <> "/")
-        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? #dir % child)
+        [ withAttr (attrName "top-panel") $ txt $ withSlash $ decode $ s ^. curDir % #path
+        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? childDir)
         ]
+  withSlash "/" = "/"
+  withSlash text = text <> "/"
+
   bottomPanel = fillLine -- placeholder
 
-renderDir :: Bool -> Maybe DirTree -> Widget ResourceName
-renderDir hasFocus = maybe emptyWidget $ view #files .> renderList renderFile hasFocus
+renderDir :: ResourceName -> Bool -> Maybe DirNode -> Widget ResourceName
+renderDir prefix hasFocus =
+  maybe emptyWidget $
+    view #files .> over (lensVL listNameL) (prefix <>) .> renderList renderFile hasFocus
 
 fillLine :: Widget n
 fillLine = vLimit 1 $ fill ' '

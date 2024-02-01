@@ -19,6 +19,7 @@ module Lcns.Prelude (
   asking,
   dirBuilder,
   withEnv,
+  tug,
 ) where
 
 import Relude hiding (readFileBS, uncons)
@@ -29,8 +30,8 @@ import Optics
 import Optics.Operators
 import Optics.State.Operators
 
-import Control.Exception qualified as E (try)
 import Brick (EventM)
+import Control.Exception qualified as E (try)
 
 infixl 9 .>
 
@@ -90,8 +91,12 @@ asking :: (Is k A_Getter, MonadReader r m) => Optic' k is r a -> m a
 asking = asks <. view
 
 dirBuilder :: Path Abs -> DirBuilder
-dirBuilder path = DirBuilder path Nothing Nothing Nothing
+dirBuilder path = DirBuilder path Nothing Nothing
 
 -- | Unwrap AppM and run it with a given Env
 withEnv :: AppEnv -> AppM a -> EventM ResourceName AppState a
 withEnv env (AppM action) = usingReaderT env action
+
+-- borrowed from `zippers`
+tug :: (a -> Maybe a) -> a -> a
+tug f x = fromMaybe x (f x)

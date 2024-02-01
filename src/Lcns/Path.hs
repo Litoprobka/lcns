@@ -23,6 +23,9 @@ module Lcns.Path (
   getModificationTime,
   tryGetModTime,
   readFileBS,
+  splitDirectories,
+  joinPath,
+  root,
 ) where
 
 import Lcns.Prelude
@@ -78,6 +81,20 @@ infixr 5 </>
 (</>) :: Path a -> Path Rel -> Path a
 parent </> child = sameAs parent $ toOS parent `OP.combine` toOS child
 
+-- chances are, OP.joinPath is faster than a naive foldr (</>)
+joinPath :: [Path Rel] -> Path Rel
+joinPath = map toOS .> OP.joinPath .> mkRel
+
+isAbsolute :: Path unknown -> Bool
+isAbsolute = toOS .> OP.isAbsolute
+
+-- the type signature is a bit janky, but it has to be, because "/" is Abs and the rest are not
+splitDirectories :: Path any -> (Maybe (Path Abs), [Path Rel])
+splitDirectories path = case OP.splitDirectories $ toOS path of
+  (maybeRoot : rest)
+    | isAbsolute path -> (Just $ mkAbs maybeRoot, map mkRel rest)
+  chunks -> (Nothing, map mkRel chunks)
+
 -- * Directory wrappers
 
 getCurrentDirectory :: MonadIO m => m (Path Abs)
@@ -132,10 +149,14 @@ decode = toSBS .> fromShort .> decodeUtf8
 
 withPath :: (Path Abs -> a) -> (Path Rel -> a) -> Path any -> a
 withPath onAbs onRel path'
-  | OP.isAbsolute path = onAbs $ mkAbs path
+  | isAbsolute path' = onAbs $ mkAbs path
   | otherwise = onRel $ mkRel path
  where
   path = toOS path'
+
+-- root path
+root :: Path Abs
+root = coerce ("/" :: ShortByteString)
 
 {- | Combine two paths. If the second path is "..", normalise it
 (once again, I couldn't come up with a decent name)

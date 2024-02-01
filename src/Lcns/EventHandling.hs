@@ -39,7 +39,7 @@ moveDown = goDown >> refreshWatchers
 
 open :: AppM ()
 open =
-  preuse (#dir % child)
+  preuse childDir
     >>= onJust (openFile >=> const refreshWatchers)
 
 moveBack :: AppM ()
@@ -47,10 +47,10 @@ moveBack = goLeft >> refreshWatchers
 
 delete :: AppM ()
 delete = do
-  preuse (#dir % #files % to listSelectedElement % _Just)
+  preuse (curDir % #files % to listSelectedElement % _Just)
     >>= onJust \(index, file) -> do
       removeFile file.path
-      #dir % #files %= listRemove index
+      curDir % #files %= listRemove index
 
 invertSort :: AppM ()
 invertSort = #sortFunction % #reversed %= not >> rebuild
@@ -67,8 +67,8 @@ refreshWatchers = do
 
 getDirs :: (MonadIO m, MonadState AppState m) => m (WhichDir -> Maybe (Path Abs))
 getDirs = do
-  path <- use $ #dir % #path
-  childDirPath <- preuse $ #dir % child % savedDir % #path
+  path <- use $ curDir % #path
+  childDirPath <- preuse $ childDir % savedDir % #path
   pure $ \case
     Parent -> takeParent path
     Current -> Just path
@@ -105,21 +105,21 @@ handleAppEvent (DirEvent dir event) = case event of
   _ -> pass -- for Ignored and the like
  where
   files :: AffineTraversal' AppState FileSeq
-  files = (\opt -> #dir % opt % #files) $ case dir of
-    Current -> idTrav
-    Parent -> #parent % _Just
-    Child -> child % savedDir
+  files = (\opt -> opt % #files) $ case dir of
+    Current -> curDir % idTrav
+    Parent -> parent
+    Child -> childDir % savedDir
 
   actOnFile :: (SortFunction -> FileInfo -> FileSeq -> FileSeq) -> RawFilePath -> Path Abs -> AppM ()
-  actOnFile f path parent = do
-    fileInfo <- getFileInfo $ parent </> takeFileName (fromRaw path)
+  actOnFile f path parentPath = do
+    fileInfo <- getFileInfo $ parentPath </> takeFileName (fromRaw path)
     sortf <- use #sortFunction
     files %= f sortf fileInfo
 
   withParent :: (Path Abs -> AppM ()) -> AppM ()
   withParent action = do
     getDirs ?? dir >>= \case
-      Just parent -> action parent
+      Just parentPath -> action parentPath
       Nothing ->
         files %= listClear
 
@@ -145,6 +145,6 @@ openFile nonDir =
 
 rebuild :: AppM ()
 rebuild = do
-  traversing #dir (refreshSavedDir' True)
-  traversing (#dir % #parent % _Just) (refreshSavedDir' True)
+  traversing curDir (refreshSavedDir' True)
+  traversing parent (refreshSavedDir' True)
   refreshSelected' True

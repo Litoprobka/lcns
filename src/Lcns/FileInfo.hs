@@ -5,8 +5,8 @@ module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, s
 import Lcns.Path
 import Lcns.Prelude
 
-import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 import Data.HashSet qualified as Set
+import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
 getFileInfo :: MonadIO m => Path Abs -> m FileInfo
 getFileInfo path = tryGetFileInfo Set.empty path <&> fromMaybe File{path, name = takeFileName path, status = Nothing, contents = Nothing}
@@ -58,20 +58,21 @@ nameOf :: FileInfo -> Path Rel
 nameOf File{name} = name
 nameOf Dir{name} = name
 nameOf Link{name} = name
-nameOf SavedDir{dir = DirTree{path}} = takeFileName path
+nameOf SavedDir{dir = DirNode{path}} = takeFileName path
 
 {- | Focuses an arbitrarily nested `SavedDir`.
 Mostly reduntant, since it's usually called with `child` that already removes link nesting via `symlinked`,
 but better be safe than sorry
 -}
-savedDir :: AffineTraversal' FileInfo DirTree
+savedDir :: AffineTraversal' FileInfo DirNode
 savedDir = symlinked % #_SavedDir
 
 {- | Focuses the target of a (potentially nested) symlink
+
 >>> import Lcns.Path
 >>> path <- getCurrentDirectory
->>> no = Link{path, name = takeFileName path, link = Nothing, status = Nothing}
->>> no & #link ?~ no & has symlinked
+>>> cycle = Link{path, name = takeFileName path, link = Nothing, status = Nothing}
+>>> cycle & #link ?~ cycle & has symlinked
 False
 -}
 symlinked :: AffineTraversal' FileInfo FileInfo
