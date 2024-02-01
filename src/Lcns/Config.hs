@@ -14,12 +14,20 @@ import Lcns.Prelude
 import Brick (halt)
 import Data.Default
 import Graphics.Vty.Input (Key (..), Modifier (..))
+import Config.Dyre.Relaunch
+
+quit :: AppM ()
+quit = AppM $ lift halt
+
+reload :: AppM ()
+reload = AppM $ liftIO $ relaunchMaster Nothing
 
 instance Default Config where
   def = Config{keybindings}
    where
     keybindings = \cases
-      (KChar 'q') [MCtrl] -> AppM $ lift halt -- this... is not nice
+      (KChar 'q') [] -> reload
+      (KChar 'q') [MCtrl] -> quit
       KUp [] -> moveUp
       KDown [] -> moveDown
       KRight [] -> open

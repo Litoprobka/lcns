@@ -34,6 +34,7 @@ dependencies:
   - bytestring
   - data-default
   - directory
+  - dyre
   - filepath >= 1.4.100.4
   - hinotify
   - optics

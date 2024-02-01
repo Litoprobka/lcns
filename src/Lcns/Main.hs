@@ -18,9 +18,13 @@ import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
+import Config.Dyre qualified as Dyre
 
 lcns :: Config -> IO ()
-lcns config = do
+lcns = Dyre.wrapMain $ Dyre.newParams "lcns" lcnsMain const
+
+lcnsMain :: Config -> IO ()
+lcnsMain config = do
   channel <- newBChan 8 -- in theory, 3 should work
   void $ withINotify \inotify -> do
     let env = AppEnv{..}

@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Relude
-import Lcns.Recompilation (recompileAndRun)
+import Lcns
 
 main :: IO ()
-main = recompileAndRun
+main = lcns def

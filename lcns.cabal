@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -33,7 +33,6 @@ library
       Lcns.Main
       Lcns.Path
       Lcns.Prelude
-      Lcns.Recompilation
       Lcns.Sort
       Lcns.TH
       Lcns.Types
@@ -58,6 +57,7 @@ library
     , bytestring
     , data-default
     , directory
+    , dyre
     , filepath >=1.4.100.4
     , hinotify
     , optics
@@ -93,6 +93,7 @@ executable lcns
     , bytestring
     , data-default
     , directory
+    , dyre
     , filepath >=1.4.100.4
     , hinotify
     , lcns
