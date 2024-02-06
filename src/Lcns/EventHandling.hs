@@ -14,7 +14,7 @@ module Lcns.EventHandling (
   refreshWatchers,
 ) where
 
-import Lcns.DirTree
+import Lcns.DirHistory
 import Lcns.FileInfo
 import Lcns.FileTracker
 import Lcns.ListUtils qualified as LU
@@ -30,6 +30,8 @@ import Graphics.Vty.Input.Events
 import Lcns.Path
 import System.INotify qualified as IN (Event (..))
 import System.Posix.ByteString (RawFilePath)
+import Lcns.FileMap (addRawFile, lookupId)
+import Control.Exception (PatternMatchFail(..))
 
 moveUp :: AppM ()
 moveUp = goUp >> refreshWatchers
@@ -39,7 +41,7 @@ moveDown = goDown >> refreshWatchers
 
 open :: AppM ()
 open =
-  preuse childDir
+  preuse childId
     >>= onJust (openFile >=> const refreshWatchers)
 
 moveBack :: AppM ()
@@ -47,8 +49,9 @@ moveBack = goLeft >> refreshWatchers
 
 delete :: AppM ()
 delete = do
-  preuse (curDir % #files % to listSelectedElement % _Just)
-    >>= onJust \(index, file) -> do
+  useOrPass (curDir % #files % to listSelectedElement % _Just) \(index, fileId) -> do
+      fileMap <- use #fileMap
+      let (Just file) = fileMap ^? ix fileId
       removeFile file.path
       curDir % #files %= listRemove index
 
@@ -68,7 +71,7 @@ refreshWatchers = do
 getDirs :: (MonadIO m, MonadState AppState m) => m (WhichDir -> Maybe (Path Abs))
 getDirs = do
   path <- use $ curDir % #path
-  childDirPath <- preuse $ childDir % savedDir % #path
+  childDirPath <- preuse $ childDir % #path
   pure $ \case
     Parent -> takeParent path
     Current -> Just path
@@ -107,14 +110,27 @@ handleAppEvent (DirEvent dir event) = case event of
   files :: AffineTraversal' AppState FileSeq
   files = (\opt -> opt % #files) $ case dir of
     Current -> curDir % idTrav
-    Parent -> parent
-    Child -> childDir % savedDir
+    Parent -> parentDir
+    Child -> childDir
 
-  actOnFile :: (SortFunction -> FileInfo -> FileSeq -> FileSeq) -> RawFilePath -> Path Abs -> AppM ()
-  actOnFile f path parentPath = do
-    fileInfo <- getFileInfo $ parentPath </> takeFileName (fromRaw path)
+  actOnFile
+    :: AddFileOrNot -- whether to create and add a new file
+    -> (FileMap -> SortFunction -> FileId -> FileSeq -> FileSeq) -- FileSeq update function
+    -> RawFilePath
+    -> Path Abs
+    -> AppM ()
+  actOnFile addFile f fileName parentPath = do
+    let path = parentPath </> takeFileName (fromRaw fileName)
+    when (addFile == AddFile) do
+      rawFileInfo <- getFileInfo path
+      #fileMap %= addRawFile rawFileInfo
+
     sortf <- use #sortFunction
-    files %= f sortf fileInfo
+    fileMap <- use #fileMap
+    let fid = case lookupId fileMap path of
+            Nothing -> bug $ PatternMatchFail "actOnFile called on a non-existent file"
+            Just fid' -> fid'
+    files %= f fileMap sortf fid
 
   withParent :: (Path Abs -> AppM ()) -> AppM ()
   withParent action = do
@@ -124,9 +140,11 @@ handleAppEvent (DirEvent dir event) = case event of
         files %= listClear
 
   evUpdate :: RawFilePath -> AppM ()
-  evUpdate = withParent <. actOnFile LU.update
-  evCreate = withParent <. actOnFile LU.insert
-  evDelete name = withParent $ const $ files %= LU.delete (takeFileName $ fromRaw name)
+  evUpdate = withParent <. actOnFile AddFile LU.update
+  evCreate = withParent <. actOnFile AddFile LU.insert
+  evDelete = withParent <. actOnFile Don't (\_ _ -> LU.delete)
+
+data AddFileOrNot = AddFile | Don't deriving Eq
 
 handleEventWith :: BrickEvent n LcnsEvent -> AppM ()
 handleEventWith event = case event of
@@ -135,16 +153,17 @@ handleEventWith event = case event of
   MouseDown{} -> pass
   MouseUp{} -> pass
 
-openFile :: FileInfo -> AppM ()
-openFile file
-  | isDir file = goRight
-openFile nonDir =
-  executeFile (fromRaw "xdg-open") True name Nothing
- where
-  name = nonDir ^? #name <&> (\(Path p) -> p) & maybeToList
+openFile :: FileId -> AppM ()
+openFile fid = do
+  fileMap <- use #fileMap
+  if isDir fileMap fid
+    then goRight
+    else do
+      let name = fileMap ^? ix fid % #name <&> (\(Path p) -> p) & maybeToList
+      executeFile (fromRaw "xdg-open") True name Nothing
 
 rebuild :: AppM ()
 rebuild = do
-  traversing curDir (refreshSavedDir' True)
-  traversing parent (refreshSavedDir' True)
+  useOrPass curDirId (refreshSavedDir' True)
+  useOrPass parent (refreshSavedDir' True)
   refreshSelected' True

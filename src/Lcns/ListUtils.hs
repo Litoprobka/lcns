@@ -10,38 +10,36 @@ import Brick.Widgets.List (
   listRemove,
  )
 import Data.Sequence qualified as Seq
-import Lcns.FileInfo (nameOf)
 import Lcns.Prelude hiding (empty)
 import Lcns.Sort
 
-lookup :: Path Rel -> FileSeq -> Maybe Int
-lookup path =
+lookup :: FileId -> FileSeq -> Maybe Int
+lookup fid =
   listElements
-    .> Seq.findIndexL (nameOf .> (== path))
+    .> Seq.findIndexL (== fid)
 
-select :: Path Rel -> FileSeq -> FileSeq
-select path =
-  applyJust (lookup path) listMoveTo
+select :: FileId -> FileSeq -> FileSeq
+select fid =
+  applyJust (lookup fid) listMoveTo
 
-selectMaybe :: Maybe (Path Rel) -> FileSeq -> FileSeq
-selectMaybe mpath files = maybe files (`select` files) mpath
+selectMaybe :: Maybe FileId -> FileSeq -> FileSeq
+selectMaybe mbId files = mbId & maybe files (`select` files)
 
-delete :: Path Rel -> FileSeq -> FileSeq
+delete :: FileId -> FileSeq -> FileSeq
 delete path =
   applyJust (lookup path) listRemove
 
-insert :: SortFunction -> FileInfo -> FileSeq -> FileSeq
-insert sortf file seq' =
+insert :: FileMap -> SortFunction -> FileId -> FileSeq -> FileSeq
+insert fileMap sortf file seq' =
   seq'
     & listElements
-      .> Seq.takeWhileL (cmpWith sortf file .> (/= LT))
+      .> Seq.takeWhileL (cmpWith fileMap sortf file .> (/= LT))
       .> Seq.length
       .> \i -> listInsert i file seq'
 
-update :: SortFunction -> FileInfo -> FileSeq -> FileSeq
-update sortf file =
-  delete (nameOf file)
-    .> insert sortf file
+update :: FileMap -> SortFunction -> FileId -> FileSeq -> FileSeq
+update fileMap sortf fid =
+  delete fid .> insert fileMap sortf fid
 
 empty :: Text -> FileSeq
 empty name = list name Seq.empty 0

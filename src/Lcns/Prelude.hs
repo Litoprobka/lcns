@@ -20,6 +20,8 @@ module Lcns.Prelude (
   dirBuilder,
   withEnv,
   tug,
+  applyAll,
+  useOrPass,
 ) where
 
 import Relude hiding (readFileBS, uncons)
@@ -51,6 +53,9 @@ applyWhen _ _ = id
 
 applyIf :: (a -> Bool) -> (a -> a) -> a -> a
 applyIf p f x = if p x then f x else x
+
+applyAll :: [a -> a] -> a -> a
+applyAll = foldr (.>) id
 
 applyJust :: (a -> Maybe b) -> (b -> a -> a) -> a -> a
 applyJust f g x = case f x of
@@ -86,6 +91,9 @@ traversing optic f =
   get
     >>= traverseOf optic f -- hence the name
     >>= put
+
+useOrPass :: MonadState s m => Is k An_AffineFold => Optic' k is s a -> (a -> m ()) -> m ()
+useOrPass optic f = preuse optic >>= onJust f
 
 asking :: (Is k A_Getter, MonadReader r m) => Optic' k is r a -> m a
 asking = asks <. view

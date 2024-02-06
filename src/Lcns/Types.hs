@@ -19,12 +19,16 @@ module Lcns.Types (
   WhichDir (..),
   LcnsEvent (..),
   DirWatcher (..),
-  AppM(..),
+  AppM (..),
   Config (..),
-  DirTree,
+  DirHistory,
   DirNode (..),
   DirBuilder (..),
   BrickAppM,
+  FileId (..),
+  FileMap (..),
+  RawFileInfo(..),
+  AlmostAppState (..),
 )
 where
 
@@ -34,6 +38,8 @@ import Brick.Widgets.List (GenericList)
 import Data.Time (UTCTime)
 import Graphics.Vty.Input (Key, Modifier)
 import Lcns.TH (makeGettersFor)
+import Optics (At (at), Index, IxValue, Ixed (..), (%), _1, _2, AffineTraversal')
+import Optics.Lens (Lens')
 import Optics.TH (
   fieldLabelsRulesFor,
   makeFieldLabelsFor,
@@ -58,7 +64,15 @@ data Relativity
 newtype Path (rel :: Relativity) = Path PosixPath
   deriving (Eq, Ord, Hashable, Show)
 
-type FileSeq = GenericList ResourceName Seq FileInfo
+type FileSeq = GenericList ResourceName Seq FileId
+
+newtype FileId = FileId Int deriving (Show, Eq)
+
+data FileMap = FileMap
+  { nextId :: FileId
+  , fileIds :: HashMap (Path Abs) FileId
+  , files :: IntMap FileInfo
+  }
 
 data DirNode = DirNode
   { modTime :: UTCTime
@@ -66,7 +80,7 @@ data DirNode = DirNode
   , files :: FileSeq
   }
 
-type DirTree = NonEmpty DirNode
+type DirHistory = NonEmpty FileId
 
 -- copypasting ain't nice, but it's still better than a lot of nesting
 -- optics also makes it convenient (and safe) to work with partial record fields
@@ -81,7 +95,7 @@ data FileInfo
       { path :: Path Abs
       , name :: Path Rel
       , status :: Maybe FileStatus
-      , link :: Maybe FileInfo
+      , link :: Maybe FileId
       }
   | File
       { path :: Path Abs
@@ -91,13 +105,34 @@ data FileInfo
       }
   | SavedDir {dir :: DirNode}
 
+-- | a FileInfo that doesn't rely on FileMap
+data RawFileInfo
+  = RawDir
+      { path :: Path Abs
+      , name :: Path Rel
+      , itemCount :: Maybe Int
+      }
+  | RawLink
+      { path :: Path Abs
+      , name :: Path Rel
+      , status :: Maybe FileStatus
+      , link :: Maybe RawFileInfo
+      }
+  | RawFile
+      { path :: Path Abs
+      , name :: Path Rel
+      , status :: Maybe FileStatus
+      }
+
+makeFieldLabelsNoPrefix ''FileMap
 makeFieldLabelsNoPrefix ''DirNode
 makeFieldLabelsNoPrefix ''FileInfo
+makeFieldLabelsNoPrefix ''RawFileInfo
 makePrismLabels ''FileInfo
 
 data SortFunction = SF
   { reversed :: Bool
-  , func :: Maybe (FileInfo -> FileInfo -> Ordering)
+  , func :: Maybe (FileMap -> FileId -> FileId -> Ordering)
   , showDotfiles :: Bool
   }
 
@@ -131,11 +166,11 @@ makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatc
 
 -- #all is not the best name, but it will do for now
 
--- | App monad. Reader over AppEnv, State over AppState.
--- I wish Brick didn't use a concrete monad, it makes adding transformers to the stack a bit unwieldy
+{- | App monad. Reader over AppEnv, State over AppState.
+I wish Brick didn't use a concrete monad, it makes adding transformers to the stack a bit unwieldy
+-}
 newtype AppM a = AppM (ReaderT AppEnv (EventM ResourceName AppState) a)
   deriving (Functor, Applicative, Monad, MonadReader AppEnv, MonadState AppState, MonadIO)
-
 
 type BrickAppM a = EventM ResourceName AppState a
 
@@ -150,7 +185,8 @@ data AppEnv = AppEnv
   }
 
 data AppState = AppState
-  { dir :: DirTree
+  { dir :: DirHistory
+  , fileMap :: FileMap
   , sortFunction :: SortFunction
   , watchers :: INotifyState
   }
@@ -162,7 +198,29 @@ makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childF
 data DirBuilder = DirBuilder
   { path :: Path Abs
   , maybeModTime :: Maybe UTCTime
-  , prevSelection :: Maybe (Path Rel)
+  , prevSelection :: Maybe FileId
   }
 
 makeFieldLabelsNoPrefix ''DirBuilder
+
+type instance Index FileMap = FileId
+type instance IxValue FileMap = FileInfo
+
+instance Ixed FileMap where
+  ix :: FileId -> AffineTraversal' FileMap FileInfo
+  ix (FileId id') = #files % ix id' -- better be safe than sorry
+instance At FileMap where
+  at :: FileId -> Lens' FileMap (Maybe FileInfo)
+  at (FileId id') = #files % at id'
+
+class AlmostAppState s where
+  sortFunctionL :: Lens' s SortFunction
+  fileMapL :: Lens' s FileMap
+
+instance AlmostAppState (SortFunction, FileMap) where
+  sortFunctionL = _1
+  fileMapL = _2
+
+instance AlmostAppState AppState where
+  sortFunctionL = #sortFunction
+  fileMapL = #fileMap

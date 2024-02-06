@@ -7,18 +7,19 @@ import Brick hiding (Down, on)
 import Brick.BChan (newBChan)
 import Brick.Widgets.Center (hCenter)
 import Brick.Widgets.List (listElements, listNameL, renderList)
+import Config.Dyre qualified as Dyre
 import Graphics.Vty.Attributes
 import Lcns.Config
-import Lcns.DirTree (buildDirTree, childDir, curDir, parent, refreshSelected)
+import Lcns.DirHistory (buildDirHistory, childOrLink, curDir, parent, refreshSelected)
 import Lcns.EventHandling
-import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, symlinked)
+import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, savedDir, symlinked)
+import Lcns.FileMap (empty, fileIn)
 import Lcns.FileTracker
 import Lcns.Path
 import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
-import Config.Dyre qualified as Dyre
 
 lcns :: Config -> IO ()
 lcns = Dyre.wrapMain $ Dyre.newParams "lcns" lcnsMain const
@@ -41,18 +42,11 @@ buildInitialState env = do
           }
   let sortFunction = SF{reversed = False, func = Nothing, showDotfiles = True}
   path <- getCurrentDirectory
-  dir <- buildDirTree sortFunction path
+  (dir, (_, fileMap)) <- (sortFunction, Lcns.FileMap.empty) & runStateT (buildDirHistory path)
 
   AppState{..} & execStateT (refreshSelected >> refreshWatchers) & usingReaderT env
  where
   emptyWatcher dir = DirWatcher{dir, watcher = Nothing}
-
--- note: since `preview` is only ever called from `drawTUI` via `% child`, we don't have to handle symlinks here at all
-preview :: Maybe FileInfo -> Widget ResourceName
-preview = maybe emptyWidget \case
-  SavedDir dir -> renderDir "preview-" False (Just dir)
-  File{contents} -> contents & maybe (hCenter $ txt "Could't read file") txt
-  _ -> padRight Max $ padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName
 spacer = txt "\8203" -- it's a kind of magic...
@@ -62,70 +56,87 @@ drawTUI s =
   one $
     topPanel
       <=> hBox
-        [ hLimitPercent 25 $ renderDir "parent-" False $ s ^? parent
+        [ hLimitPercent 25 $ renderDir "parent-" False do
+            pId <- s ^? parent
+            s ^? #fileMap % savedDir pId
         , spacer
         , hLimitPercent 40 $ renderDir "current-" True $ s ^? curDir
         , spacer
-        , preview $ s ^? childDir
+        , preview childFile
         ]
       <=> bottomPanel
  where
+  childFile = s ^? curDir % childOrLink % fileIn s.fileMap
   topPanel =
     padLeft (Pad 5) $
       hBox
         [ withAttr (attrName "top-panel") $ txt $ withSlash $ decode $ s ^. curDir % #path
-        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? childDir)
+        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) childFile
         ]
   withSlash "/" = "/"
   withSlash text = text <> "/"
 
   bottomPanel = fillLine -- placeholder
 
-renderDir :: ResourceName -> Bool -> Maybe DirNode -> Widget ResourceName
-renderDir prefix hasFocus =
-  maybe emptyWidget $
-    view #files .> over (lensVL listNameL) (prefix <>) .> renderList renderFile hasFocus
+  -- note: since `preview` is only ever called from `drawTUI` via `% child`, we don't have to handle symlinks here at all
+  preview :: Maybe FileInfo -> Widget ResourceName
+  preview = maybe emptyWidget \case
+    SavedDir dir -> renderDir "preview-" False (Just dir)
+    File{contents} -> contents & maybe (hCenter $ txt "Could't read file") txt
+    _ -> padRight Max $ padAll 1 $ txt "preview" <=> txt "placeholder"
+
+  renderDir :: ResourceName -> Bool -> Maybe DirNode -> Widget ResourceName
+  renderDir prefix hasFocus =
+    maybe emptyWidget $
+      view #files .> over (lensVL listNameL) (prefix <>) .> renderList renderFile hasFocus
+
+  renderFile :: Bool -> FileId -> Widget n
+  renderFile isSelected fid =
+    case s.fileMap ^? ix fid of
+      Nothing -> txt "huh? there is no such file"
+      Just file ->
+        withAttr
+          ( mkAttr $
+              if isSelected
+                then ["selected"]
+                else fileAttr s.fileMap fid
+          )
+          $ line file
+
+  line :: FileInfo -> Widget n
+  line file = padLeftRight 1 $ txt (decode $ nameOf file) <+> fillLine <+> str (size file)
+
+  size :: FileInfo -> String
+  size = \case
+    SavedDir{dir} -> dir.files & listElements & length & show
+    Dir{itemCount} -> maybe "?" show itemCount
+    Link{link = maybeId} -> fromMaybe "N/A" do
+      fid <- maybeId
+      file <- s.fileMap ^? ix fid
+      pure $ size file
+    File{status} ->
+      case fileSize <$> status of
+        Nothing -> "?"
+        Just (COff n) ->
+          if
+            -- this is ugly
+            | n < 2 ^! 10 -> show n <> " B"
+            | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
+            | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
+            | otherwise -> n `div'` (2 ^! 30) $ " GiB"
 
 fillLine :: Widget n
 fillLine = vLimit 1 $ fill ' '
 
-line :: FileInfo -> Widget n
-line file = padLeftRight 1 $ txt (decode $ nameOf file) <+> fillLine <+> str (size file)
-
-renderFile :: Bool -> FileInfo -> Widget n
-renderFile isSelected file =
-  withAttr
-    ( mkAttr $
-        if isSelected
-          then ["selected"]
-          else fileAttr file
-    )
-    $ line file
-
-fileAttr :: FileInfo -> [String]
-fileAttr file
-  | isRealDir file = ["directory"]
-  | isDir file = ["link", "directory"]
-  | isn't symlinked file = ["invalid-link"] -- `symlinked` fails iff it doesn't point to a valid file
-  | isLink file = ["link"]
-  | otherwise = ["file"]
-
-size :: FileInfo -> String
-size = \case
-  SavedDir{dir} -> dir.files & listElements & length & show
-  Dir{itemCount} -> maybe "?" show itemCount
-  Link{link = Nothing} -> "N/A"
-  Link{link = Just fi} -> size fi
-  File{status} ->
-    case fileSize <$> status of
-      Nothing -> "?"
-      Just (COff n) ->
-        if
-          -- this is ugly
-          | n < 2 ^! 10 -> show n <> " B"
-          | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
-          | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
-          | otherwise -> n `div'` (2 ^! 30) $ " GiB"
+fileAttr :: FileMap -> FileId -> [String]
+fileAttr fileMap fileId = case fileMap ^? ix fileId of
+  Nothing -> []
+  Just file
+    | isRealDir file -> ["directory"]
+    | isDir fileMap fileId -> ["link", "directory"]
+    | fileMap & hasn't (symlinked fileId) -> ["invalid-link"] -- `symlinked` fails iff it doesn't point to a valid file
+    | isLink file -> ["link"]
+    | otherwise -> ["file"]
 
 infixl 8 ^!
 (^!) :: Num a => a -> Int -> a

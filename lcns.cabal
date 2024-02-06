@@ -25,10 +25,12 @@ library
   exposed-modules:
       Lcns
       Lcns.Config
-      Lcns.DirTree
+      Lcns.DirHistory
       Lcns.EventHandling
       Lcns.FileInfo
+      Lcns.FileMap
       Lcns.FileTracker
+      Lcns.JustifiedMapExperiment
       Lcns.ListUtils
       Lcns.Main
       Lcns.Path
