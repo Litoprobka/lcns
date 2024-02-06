@@ -26,9 +26,10 @@ module Lcns.Path (
   splitDirectories,
   joinPath,
   root,
+  empty,
 ) where
 
-import Lcns.Prelude
+import Lcns.Prelude hiding (empty)
 
 import Data.ByteString qualified as BS (readFile)
 import System.Directory.OsPath qualified as D
@@ -157,6 +158,9 @@ withPath onAbs onRel path'
 -- root path
 root :: Path Abs
 root = coerce ("/" :: ShortByteString)
+
+empty :: Path Rel
+empty = coerce ("" :: ShortByteString)
 
 {- | Combine two paths. If the second path is "..", normalise it
 (once again, I couldn't come up with a decent name)

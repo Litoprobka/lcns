@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiWayIf #-}
 
-module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, symlinked) where
+module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, symlinked, pathOf) where
 
 import Lcns.Path
 import Lcns.Prelude
@@ -59,6 +59,12 @@ nameOf File{name} = name
 nameOf Dir{name} = name
 nameOf Link{name} = name
 nameOf SavedDir{dir = DirNode{path}} = takeFileName path
+
+pathOf :: FileInfo -> Path Abs
+pathOf File{path} = path
+pathOf Dir{path} = path
+pathOf Link{path} = path
+pathOf SavedDir{dir = DirNode{path}} = path
 
 {- | Focuses an arbitrarily nested `SavedDir`.
 Mostly reduntant, since it's usually called with `child` that already removes link nesting via `symlinked`,

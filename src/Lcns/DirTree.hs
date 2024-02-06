@@ -45,7 +45,17 @@ cur = lens getL setL
   setL (_ :| xs) x = x :| xs
 
 parent :: AffineTraversal' AppState DirNode
-parent = #dir % ix 1
+parent = #dir % atraversal tryGet update
+ where
+  selected = childOrLink % symlinked
+  tryGet dirs = case dirs ^? ix 1 of
+    Nothing -> Left dirs
+    Just dir -> Right $ dir & selected .~ SavedDir (dirs ^. cur)
+  update dirs newParent =
+    dirs
+      & ix 1 .~ case newParent ^? selected of
+        Nothing -> newParent
+        Just newChild -> newParent & selected .~ newChild
 
 -- listSelectedElementL is a Traversal rather than AffineTraversal, and there's no easy way to downcast
 childOrLink :: AffineTraversal' DirNode FileInfo
@@ -94,9 +104,13 @@ goLeft' =
       Just $ parentTree & child .~ SavedDir curDir'
 
 goRight' :: DirTree -> Maybe DirTree
-goRight' dirTree =
+goRight' dirTree = do
   -- note that `child` *cannot* be a Dir here
-  dirTree ^? child % savedDir <&> (`NE.cons` dirTree)
+  childDir' <- dirTree ^? child % savedDir
+  linkName <- dirTree ^? cur % childOrLink % to nameOf
+  let linkPath = dirTree ^. cur % #path </> linkName 
+
+  pure $ (childDir' & #path .~ linkPath) `NE.cons` dirTree
 
 refreshSelected' :: (MonadIO m, MonadState AppState m) => Bool -> m ()
 refreshSelected' forceRefresh = do
@@ -161,7 +175,10 @@ buildDirNode DirBuilder{..} sortF = do
 buildDirTree :: MonadIO m => SortFunction -> Path Abs -> m DirTree
 buildDirTree sortF path = do
   let (_, nonRootChunks) = Path.splitDirectories path
-  let paths = NE.reverse $ (Path.root </>) <. joinPath <$> NE.inits nonRootChunks
+  let pathsReversed = (Path.root </>) <. joinPath <$> inits nonRootChunks
+      pathsWithChildren' = zip pathsReversed nonRootChunks
+      paths = (path, Path.empty) :| reverse pathsWithChildren'
   traverse buildDirNode' paths
  where
-  buildDirNode' path' = buildDirNode (dirBuilder path') sortF
+  buildDirNode' (path', selection) =
+    buildDirNode (dirBuilder path' & #prevSelection ?~ selection) sortF

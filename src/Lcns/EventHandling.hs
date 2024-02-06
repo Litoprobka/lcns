@@ -68,7 +68,7 @@ refreshWatchers = do
 getDirs :: (MonadIO m, MonadState AppState m) => m (WhichDir -> Maybe (Path Abs))
 getDirs = do
   path <- use $ curDir % #path
-  childDirPath <- preuse $ childDir % savedDir % #path
+  childDirPath <- preuse $ curDir % childOrLink % to pathOf
   pure $ \case
     Parent -> takeParent path
     Current -> Just path

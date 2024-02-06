@@ -7,9 +7,10 @@ import Brick hiding (Down, on)
 import Brick.BChan (newBChan)
 import Brick.Widgets.Center (hCenter)
 import Brick.Widgets.List (listElements, listNameL, renderList)
+import Config.Dyre qualified as Dyre
 import Graphics.Vty.Attributes
 import Lcns.Config
-import Lcns.DirTree (buildDirTree, childDir, curDir, parent, refreshSelected)
+import Lcns.DirTree (buildDirTree, childDir, curDir, parent, refreshSelected, childOrLink)
 import Lcns.EventHandling
 import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, symlinked)
 import Lcns.FileTracker
@@ -18,7 +19,6 @@ import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
-import Config.Dyre qualified as Dyre
 
 lcns :: Config -> IO ()
 lcns = Dyre.wrapMain $ Dyre.newParams "lcns" lcnsMain const
@@ -74,7 +74,7 @@ drawTUI s =
     padLeft (Pad 5) $
       hBox
         [ withAttr (attrName "top-panel") $ txt $ withSlash $ decode $ s ^. curDir % #path
-        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? childDir)
+        , withAttr (attrName "top-panel" <> attrName "selected") $ txt $ maybe "" (decode <. nameOf) (s ^? curDir % childOrLink)
         ]
   withSlash "/" = "/"
   withSlash text = text <> "/"

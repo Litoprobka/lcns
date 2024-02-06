@@ -39,7 +39,7 @@ watchDir w inotify path channel = do
 
 killWatcher :: MonadIO m => DirWatcher -> m DirWatcher
 killWatcher w = do
-  io $ w.watcher & onJust removeWatch
+  _ <- try @SomeException $ io $ w.watcher & onJust removeWatch
   pure $ w & #watcher .~ Nothing
 
 mainWithFileTracker :: Ord n => BChan e -> App s e n -> s -> IO s
