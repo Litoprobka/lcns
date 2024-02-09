@@ -10,7 +10,7 @@ import Brick.Widgets.List (listElements, listNameL, renderList)
 import Config.Dyre qualified as Dyre
 import Graphics.Vty.Attributes
 import Lcns.Config
-import Lcns.DirTree (buildDirTree, childDir, curDir, parent, refreshSelected, childOrLink)
+import Lcns.DirTree (buildDirTree, childDir, childOrLink, curDir, parent, refreshSelected)
 import Lcns.EventHandling
 import Lcns.FileInfo (isDir, isLink, isRealDir, nameOf, symlinked)
 import Lcns.FileTracker
@@ -111,28 +111,29 @@ fileAttr file
   | otherwise = ["file"]
 
 size :: FileInfo -> String
-size = \case
-  SavedDir{dir} -> dir.files & listElements & length & show
-  Dir{itemCount} -> maybe "?" show itemCount
-  Link{link = Nothing} -> "N/A"
-  Link{link = Just fi} -> size fi
-  File{status} ->
-    case fileSize <$> status of
-      Nothing -> "?"
-      Just (COff n) ->
-        if
+size = go True
+ where
+  go drawArr = \case
+    SavedDir{dir} -> dir.files & listElements & length & show
+    Dir{itemCount} -> maybe "?" show itemCount
+    Link{link = Nothing} -> "N/A"
+    Link{link = Just fi} -> applyWhen drawArr ("-> " <>) $ go False fi
+    File{status} ->
+      case fileSize <$> status of
+        Nothing -> "?"
+        Just (COff n)
           -- this is ugly
           | n < 2 ^! 10 -> show n <> " B"
           | n < 2 ^! 20 -> n `div'` (2 ^! 10) $ " KiB"
           | n < 2 ^! 30 -> n `div'` (2 ^! 20) $ " MiB"
           | otherwise -> n `div'` (2 ^! 30) $ " GiB"
 
-infixl 8 ^!
-(^!) :: Num a => a -> Int -> a
-(^!) = (^)
+  div' :: Int64 -> Double -> String -> String
+  div' x y = showFFloat (Just 2) (fromIntegral x / y)
 
-div' :: Int64 -> Double -> String -> String
-div' x y = showFFloat (Just 2) (fromIntegral x / y)
+  infixl 8 ^!
+  (^!) :: Num a => a -> Int -> a
+  (^!) = (^)
 
 app :: AppEnv -> App AppState LcnsEvent ResourceName
 app env =
