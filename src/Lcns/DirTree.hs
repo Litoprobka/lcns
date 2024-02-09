@@ -28,7 +28,7 @@ import Lcns.Sort qualified as S
 import Brick.Widgets.List (list, listClear, listModify, listMoveBy, listSelectedElement)
 import Data.List.NonEmpty qualified as NE
 import Data.Sequence qualified as Seq (fromList)
-import Lcns.FileInfo (getFileInfo, nameOf, savedDir, symlinked)
+import Lcns.FileInfo (getFileInfo, mkFileContents, nameOf, savedDir, symlinked)
 import Lcns.ListUtils qualified as LU
 import Lcns.Path qualified as Path
 import Relude.Extra (head1)
@@ -108,7 +108,7 @@ goRight' dirTree = do
   -- note that `child` *cannot* be a Dir here
   childDir' <- dirTree ^? child % savedDir
   linkName <- dirTree ^? cur % childOrLink % to nameOf
-  let linkPath = dirTree ^. cur % #path </> linkName 
+  let linkPath = dirTree ^. cur % #path </> linkName
 
   pure $ (childDir' & #path .~ linkPath) `NE.cons` dirTree
 
@@ -121,9 +121,7 @@ refreshSelected' forceRefresh = do
       SavedDir <$> buildDirNode (dirBuilder path) sortFunction
     -- note that `child` contains `symlinked`, so this does not remove link nesting
     file@File{path, contents} -> do
-      newContents <- case contents of
-        Nothing -> tryJust $ decodeUtf8 <$> readFileBS path
-        justContents -> pure justContents
+      newContents <- mkFileContents path contents
       pure $ file & #contents .~ newContents
     other -> pure other
 

@@ -1,10 +1,12 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 
-module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, symlinked, pathOf) where
+module Lcns.FileInfo (getFileInfo, isDir, isRealDir, isLink, nameOf, savedDir, symlinked, pathOf, mkFileContents) where
 
 import Lcns.Path
 import Lcns.Prelude
 
+import Data.ByteString.Char8 (hGetSome)
 import Data.HashSet qualified as Set
 import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
@@ -39,6 +41,19 @@ tryGetFileInfo visited path = do
   getDirInfo = do
     itemCount <- length <<$>> tryJust (listDirectory path)
     pure $ Dir{path, name, itemCount}
+
+-- todo: check file status
+-- todo: don't try to display non-text files
+mkFileContents :: MonadIO m => Path Abs -> Maybe Text -> m (Maybe Text)
+mkFileContents path = \case
+  Just contents -> pure $ Just contents
+  Nothing -> tryJust $ withFile (decodeUtf8 $ fromAbs path) ReadMode \h -> do
+    decodeUtf8 <$> hGetSome h previewSize
+ where
+  -- estimated preview size upper bound. I can't really use the actual preview dimensions,
+  -- since the preview may be resized and we don't want to re-read the file every time.
+  -- so it's easier to store more than can be displayed
+  previewSize = 100 * 100
 
 isRealDir :: FileInfo -> Bool
 isRealDir Dir{} = True
