@@ -106,7 +106,7 @@ handleAppEvent (DirEvent dir event) = case event of
  where
   files :: AffineTraversal' AppState FileSeq
   files = (\opt -> opt % #files) $ case dir of
-    Current -> curDir % idTrav
+    Current -> castOptic @An_AffineTraversal curDir
     Parent -> parent
     Child -> childDir % savedDir
 

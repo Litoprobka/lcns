@@ -14,7 +14,6 @@ module Lcns.Prelude (
   io,
   try,
   tryJust,
-  idTrav,
   traversing,
   asking,
   dirBuilder,
@@ -73,12 +72,6 @@ try action = io $ E.try action
 
 tryJust :: MonadIO m => IO a -> m (Maybe a)
 tryJust action = preview _Right <$> try @SomeException action
-
-{- | An AffineTraversal that always focuses the whole structure.
-   Optics wouldn't let me cast `simple` to an AffineTraversal
--}
-idTrav :: AffineTraversal' a a
-idTrav = atraversal Right (\_ x -> x)
 
 -- | focus some part(s) of state and apply an effectful computation to it
 traversing :: MonadState s m => Is k A_Traversal => Optic' k is s a -> (a -> m a) -> m ()
