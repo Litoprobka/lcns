@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 
 module Lcns.Main (lcns) where
 
@@ -51,7 +50,7 @@ buildInitialState env = do
 preview :: Maybe FileInfo -> Widget ResourceName
 preview = maybe emptyWidget \case
   SavedDir dir -> renderDir "preview-" False (Just dir)
-  File{contents} -> contents & maybe (hCenter $ txt "Could't read file") txt
+  File{contents} -> contents & maybe (hCenter $ txt "Couldn't read file") txt
   _ -> padRight Max $ padAll 1 $ txt "preview" <=> txt "placeholder"
 
 spacer :: Widget ResourceName

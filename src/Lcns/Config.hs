@@ -12,9 +12,9 @@ import Lcns.EventHandling hiding (
 import Lcns.Prelude
 
 import Brick (halt)
+import Config.Dyre.Relaunch
 import Data.Default
 import Graphics.Vty.Input (Key (..), Modifier (..))
-import Config.Dyre.Relaunch
 
 quit :: AppM ()
 quit = AppM $ lift halt
@@ -23,7 +23,7 @@ reload :: AppM ()
 reload = AppM $ liftIO $ relaunchMaster Nothing
 
 instance Default Config where
-  def = Config{keybindings}
+  def = Config{keybindings, tabSize = 4}
    where
     keybindings = \cases
       (KChar 'q') [] -> reload

@@ -8,6 +8,7 @@ import Lcns.Prelude
 
 import Data.ByteString.Char8 (hGetSome)
 import Data.HashSet qualified as Set
+import Data.Text qualified as Text
 import System.Posix.PosixString (FileStatus, isDirectory, isSymbolicLink)
 
 getFileInfo :: MonadIO m => Path Abs -> m FileInfo
@@ -43,17 +44,26 @@ tryGetFileInfo visited path = do
     pure $ Dir{path, name, itemCount}
 
 -- todo: check file status
--- todo: don't try to display non-text files
-mkFileContents :: MonadIO m => Path Abs -> Maybe Text -> m (Maybe Text)
+mkFileContents :: (MonadIO m, MonadReader AppEnv m) => Path Abs -> Maybe Text -> m (Maybe Text)
 mkFileContents path = \case
   Just contents -> pure $ Just contents
-  Nothing -> tryJust $ withFile (decodeUtf8 $ fromAbs path) ReadMode \h -> do
-    decodeUtf8 <$> hGetSome h previewSize
+  Nothing -> do
+    tabSize <- gview (#config % #tabSize)
+    fileData <- tryJust $ withFile (decodeUtf8 $ fromAbs path) ReadMode (`hGetSome` previewSize)
+    pure $ fileData >>= decodeMaybe <&> replaceTabs tabSize
  where
   -- estimated preview size upper bound. I can't really use the actual preview dimensions,
   -- since the preview may be resized and we don't want to re-read the file every time.
   -- so it's easier to store more than can be displayed
   previewSize = 100 * 100
+
+  decodeMaybe :: ByteString -> Maybe Text
+  decodeMaybe = decodeUtf8Strict .> rightToMaybe
+
+  replaceTabs :: Int -> Text -> Text
+  replaceTabs tabSize = Text.concatMap \case
+    '\t' -> Text.replicate tabSize " "
+    letter -> Text.singleton letter
 
 isRealDir :: FileInfo -> Bool
 isRealDir Dir{} = True

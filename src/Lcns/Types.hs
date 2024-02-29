@@ -19,7 +19,8 @@ module Lcns.Types (
   WhichDir (..),
   LcnsEvent (..),
   DirWatcher (..),
-  AppM(..),
+  AppM (..),
+  AppLike,
   Config (..),
   DirTree,
   DirNode (..),
@@ -54,7 +55,7 @@ data Relativity
   | Unknown
 
 -- invariant: Path _   never contains a trailing slash
--- invariant: Path Abs is never empty
+-- invariant: Path Abs is never empty (i.e. root path is "/")
 newtype Path (rel :: Relativity) = Path PosixPath
   deriving (Eq, Ord, Hashable, Show)
 
@@ -131,16 +132,19 @@ makeFieldLabelsFor [("parentWatcher", "all"), ("dirWatcher", "all"), ("childWatc
 
 -- #all is not the best name, but it will do for now
 
--- | App monad. Reader over AppEnv, State over AppState.
--- I wish Brick didn't use a concrete monad, it makes adding transformers to the stack a bit unwieldy
+{- | App monad. Reader over AppEnv, State over AppState.
+I wish Brick didn't use a concrete monad, it makes adding transformers to the stack a bit unwieldy
+-}
 newtype AppM a = AppM (ReaderT AppEnv (EventM ResourceName AppState) a)
   deriving (Functor, Applicative, Monad, MonadReader AppEnv, MonadState AppState, MonadIO)
 
+type AppLike m = (MonadIO m, MonadState AppState m, MonadReader AppEnv m)
 
 type BrickAppM a = EventM ResourceName AppState a
 
-newtype Config = Config
+data Config = Config
   { keybindings :: Key -> [Modifier] -> AppM ()
+  , tabSize :: Int
   }
 
 data AppEnv = AppEnv
@@ -155,6 +159,7 @@ data AppState = AppState
   , watchers :: INotifyState
   }
 
+makeFieldLabelsNoPrefix ''Config
 makeGettersFor ["channel", "inotify", "config"] ''AppEnv
 makeFieldLabelsNoPrefix ''AppState
 makeFieldLabelsFor [("parentFiles", "allFiles"), ("files", "allFiles"), ("childFiles", "allFiles")] ''AppState

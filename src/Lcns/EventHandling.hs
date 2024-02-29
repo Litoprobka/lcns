@@ -87,7 +87,7 @@ refreshWatch env getDir dw =
 
 handleVtyEvent :: Event -> AppM ()
 handleVtyEvent event = do
-  cfg <- asking #config
+  cfg <- gview #config
   case event of
     EvKey key mods -> cfg.keybindings key mods
     _ -> pass

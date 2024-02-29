@@ -112,7 +112,7 @@ goRight' dirTree = do
 
   pure $ (childDir' & #path .~ linkPath) `NE.cons` dirTree
 
-refreshSelected' :: (MonadIO m, MonadState AppState m) => Bool -> m ()
+refreshSelected' :: AppLike m => Bool -> m ()
 refreshSelected' forceRefresh = do
   traversing (childDir % savedDir) (refreshSavedDir' forceRefresh)
   traversing childDir \case
@@ -125,7 +125,7 @@ refreshSelected' forceRefresh = do
       pure $ file & #contents .~ newContents
     other -> pure other
 
-refreshSelected :: (MonadIO m, MonadState AppState m) => m ()
+refreshSelected :: AppLike m => m ()
 refreshSelected = refreshSelected' False
 
 refreshSavedDir' :: (MonadIO m, MonadState AppState m) => Bool -> DirNode -> m DirNode

@@ -15,7 +15,6 @@ module Lcns.Prelude (
   try,
   tryJust,
   traversing,
-  asking,
   dirBuilder,
   withEnv,
   tug,
@@ -79,9 +78,6 @@ traversing optic f =
   get
     >>= traverseOf optic f -- hence the name
     >>= put
-
-asking :: (Is k A_Getter, MonadReader r m) => Optic' k is r a -> m a
-asking = asks <. view
 
 dirBuilder :: Path Abs -> DirBuilder
 dirBuilder path = DirBuilder path Nothing Nothing
