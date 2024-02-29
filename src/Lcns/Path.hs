@@ -29,7 +29,7 @@ module Lcns.Path (
   empty,
 ) where
 
-import Lcns.Prelude hiding (empty)
+import Lcns.Prelude hiding (empty, put, get)
 
 import Data.ByteString qualified as BS (readFile)
 import System.Directory.OsPath qualified as D
@@ -42,13 +42,20 @@ import System.Posix.PosixString qualified as PS
 import Data.Time (UTCTime)
 import System.OsString.Internal.Types (OsString (..), PosixString (..))
 import System.Posix.ByteString (RawFilePath)
+import Data.Binary (Binary, put, get)
+
+instance Binary (Path Abs) where
+  put path = put (toSBS path)
+  get = do
+    sbs <- get @ShortByteString
+    pure $ coerce sbs
 
 -- * Some convenience functions to write Path wrappers, not meant for external use
 
 toSBS :: Path any -> ShortByteString
 toSBS = coerce
 
--- System.Directory doesn't provide a PlatformPath API, but some functions are handier than those provided by Unix
+-- System.Directory doesn't provide a PlatformPath API, but some functions are more handy than those provided by Unix
 toOS :: Path any -> OsPath
 toOS = coerce
 

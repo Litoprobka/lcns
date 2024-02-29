@@ -18,6 +18,7 @@ import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
+import Config.Dyre.Relaunch (restoreBinaryState)
 
 lcns :: Config -> IO ()
 lcns = Dyre.wrapMain $ Dyre.newParams "lcns" lcnsMain const
@@ -39,7 +40,8 @@ buildInitialState env = do
           , childWatcher = emptyWatcher Child
           }
   let sortFunction = SF{reversed = False, func = Nothing, showDotfiles = True}
-  path <- getCurrentDirectory
+  defaultPath <- getCurrentDirectory
+  path <- restoreBinaryState defaultPath
   dir <- buildDirTree sortFunction path
 
   AppState{..} & execStateT (refreshSelected >> refreshWatchers) & usingReaderT env
