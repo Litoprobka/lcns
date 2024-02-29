@@ -145,6 +145,7 @@ type BrickAppM a = EventM ResourceName AppState a
 data Config = Config
   { keybindings :: Key -> [Modifier] -> AppM ()
   , tabSize :: Int
+  , errors :: [String]
   }
 
 data AppEnv = AppEnv

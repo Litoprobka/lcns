@@ -7,6 +7,7 @@ import Brick.BChan (newBChan)
 import Brick.Widgets.Center (hCenter)
 import Brick.Widgets.List (listElements, listNameL, renderList)
 import Config.Dyre qualified as Dyre
+import Config.Dyre.Relaunch (restoreBinaryState)
 import Graphics.Vty.Attributes
 import Lcns.Config
 import Lcns.DirTree (buildDirTree, childDir, childOrLink, curDir, parent, refreshSelected)
@@ -18,13 +19,18 @@ import Lcns.Prelude hiding (preview)
 import Numeric (showFFloat)
 import System.INotify (withINotify)
 import System.Posix.ByteString (COff (COff), fileSize)
-import Config.Dyre.Relaunch (restoreBinaryState)
 
 lcns :: Config -> IO ()
-lcns = Dyre.wrapMain $ Dyre.newParams "lcns" lcnsMain const
+lcns config = do
+  let params = Dyre.newParams "lcns" lcnsMain addError
+  Dyre.wrapMain params config
+ where
+  addError cfg err = cfg & #errors %~ (err :)
 
 lcnsMain :: Config -> IO ()
 lcnsMain config = do
+  traverse_ putStrLn config.errors
+
   channel <- newBChan 8 -- in theory, 3 should work
   void $ withINotify \inotify -> do
     let env = AppEnv{..}

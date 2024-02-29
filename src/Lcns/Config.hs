@@ -27,7 +27,7 @@ reload = AppM do
   liftIO $ relaunchWithBinaryState (fromAbs path) Nothing
 
 instance Default Config where
-  def = Config{keybindings, tabSize = 4}
+  def = Config{keybindings, tabSize = 4, errors = []}
    where
     keybindings = \cases
       (KChar 'q') [] -> reload
