@@ -4,7 +4,8 @@ import Lcns.Prelude
 
 import Brick (App, customMain)
 import Brick.BChan (BChan, writeBChan)
-import Graphics.Vty (defaultConfig, mkVty)
+import Graphics.Vty (defaultConfig)
+import Graphics.Vty.CrossPlatform (mkVty)
 import Lcns.Path (fromAbs)
 import System.INotify (
   Event (..),

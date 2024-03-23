@@ -69,6 +69,7 @@ library
     , unix
     , unordered-containers
     , vty
+    , vty-crossplatform
   default-language: GHC2021
 
 executable lcns
@@ -107,4 +108,5 @@ executable lcns
     , unix
     , unordered-containers
     , vty
+    , vty-crossplatform
   default-language: GHC2021
